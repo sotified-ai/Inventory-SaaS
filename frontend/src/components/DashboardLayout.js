@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { auth } from "@/App";
+import { auth } from "@/config/firebase";
 import { signOut } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { isUsingMySQL } from "@/lib/api";
 
 const DashboardLayout = ({ children }) => {
   const location = useLocation();
@@ -21,10 +22,24 @@ const DashboardLayout = ({ children }) => {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
-      toast.success("Logged out successfully");
-      navigate("/auth");
+      const usingMySQL = isUsingMySQL();
+      
+      if (usingMySQL) {
+        // MySQL logout - clear localStorage
+        localStorage.removeItem('mysql-token');
+        localStorage.removeItem('mysql-username');
+        localStorage.removeItem('skip-login');
+        toast.success("Logged out successfully");
+        // Force a hard reload to clear all state
+        window.location.href = '/auth';
+      } else {
+        // Firebase logout
+        await signOut(auth);
+        toast.success("Logged out successfully");
+        navigate("/auth");
+      }
     } catch (error) {
+      console.error('Logout error:', error);
       toast.error("Failed to log out");
     }
   };
@@ -47,7 +62,7 @@ const DashboardLayout = ({ children }) => {
                 <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center">
                   <Package className="w-6 h-6 text-white" />
                 </div>
-                <h1 className="text-2xl font-bold text-gray-900">InvenTrack</h1>
+                <h1 className="text-2xl font-bold text-gray-900">Easy Inventory</h1>
               </div>
             </div>
 
@@ -74,7 +89,10 @@ const DashboardLayout = ({ children }) => {
             <div className="flex items-center space-x-4">
               <div className="hidden md:flex items-center space-x-3">
                 <span className="text-sm text-gray-600">
-                  {auth.currentUser?.email}
+                  {isUsingMySQL() 
+                    ? localStorage.getItem('mysql-username') || 'Admin'
+                    : auth.currentUser?.email
+                  }
                 </span>
                 <Button
                   variant="outline"

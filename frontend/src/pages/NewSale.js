@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
-import { auth } from "@/App";
+import { useLocation, useNavigate } from "react-router-dom";
+import { auth, firestore } from "@/config/firebase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,44 +8,137 @@ import { Label } from "@/components/ui/label";
 import { Plus, Minus, Trash2, ShoppingCart, Printer } from "lucide-react";
 import { toast } from "sonner";
 import {
+  collection,
+  getDocs,
+  addDoc,
+  doc,
+  writeBatch,
+  serverTimestamp,
+  updateDoc,
+  runTransaction,
+} from "firebase/firestore";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import { productsAPI, salesAPI, isUsingMySQL } from "@/lib/api";
 
 const NewSale = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [loading, setLoading] = useState(true);
   const [invoice, setInvoice] = useState(null);
+  const [editingSaleId, setEditingSaleId] = useState(null);
+  const [originalSaleItems, setOriginalSaleItems] = useState([]);
+  const [inventoryReversed, setInventoryReversed] = useState(false);
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [deliverymanName, setDeliverymanName] = useState("");
+  const [itemDiscount, setItemDiscount] = useState(0);
+  const [bonusQuantity, setBonusQuantity] = useState(0);
+  const [finalDiscountPercent, setFinalDiscountPercent] = useState(0);
+  const API_BASE = `${process.env.REACT_APP_BACKEND_URL}/api`;
+  const getDevToken = () => {
+    let id = localStorage.getItem("dev-user-id");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("dev-user-id", id);
+    }
+    return id;
+  };
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+    
+    // Check if we're editing a sale from navigation state
+    if (location.state?.editInvoice) {
+      const invoiceToEdit = location.state.editInvoice;
+      loadInvoiceForEditing(invoiceToEdit);
+    }
+  }, [location.state]);
 
   const fetchProducts = async () => {
+    const usingMySQL = isUsingMySQL();
     try {
-      const user = auth.currentUser;
-      if (!user) return;
-
-      const token = await user.getIdToken();
-      const response = await axios.get(`${API}/products`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setProducts(response.data.filter(p => p.stock > 0));
+      if (usingMySQL) {
+        const data = await productsAPI.getAll();
+        // Include all products for editing, not just those with stock > 0
+        setProducts(data);
+      } else {
+        const user = auth.currentUser;
+        if (!user) return;
+        const productsCollection = collection(firestore, `users/${user.uid}/products`);
+        const querySnapshot = await getDocs(productsCollection);
+        const productsData = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        // Include all products for editing
+        setProducts(productsData);
+      }
     } catch (error) {
       console.error("Failed to fetch products:", error);
       toast.error("Failed to load products");
     } finally {
       setLoading(false);
     }
+  };
+  
+  const loadInvoiceForEditing = async (invoice) => {
+    setEditingSaleId(invoice.id || invoice.invoiceId);
+    setOriginalSaleItems(invoice.items || []);
+    setCustomerName(invoice.customer_name || "");
+    setCustomerPhone(invoice.customer_phone || "");
+    setCustomerAddress(invoice.customer_address || "");
+    setDeliverymanName(invoice.deliveryman_name || "");
+    setFinalDiscountPercent(invoice.final_discount_percent || invoice.discountPercentage || 0);
+    
+    // In Firebase mode, we DON'T reverse inventory immediately
+    // Instead, we'll do it atomically during re-finalization
+    setInventoryReversed(true);
+    toast.info("Editing mode: Stock will be adjusted when you re-finalize the sale.");
+    
+    // Wait for products to be fetched, then populate cart
+    setTimeout(() => {
+      populateCartFromInvoice(invoice);
+    }, 500);
+  };
+  
+  const populateCartFromInvoice = (invoice) => {
+    const cartItems = invoice.items.map((item) => {
+      const productId = item.product_id || item.productId;
+      const product = products.find((p) => p.id === productId);
+      
+      if (!product) {
+        // Create a temporary product object if not found
+        return {
+          product: {
+            id: productId,
+            name: item.product_name || item.name || "Unknown Product",
+            sku: item.sku || "",
+            selling_price: item.unit_price || item.selling_price || item.pricePerUnit || 0,
+            stock: 0,
+          },
+          quantity: item.quantity || 1,
+          discount: item.discount || 0,
+          bonus_quantity: item.bonus_quantity || 0,
+        };
+      }
+      
+      return {
+        product,
+        quantity: item.quantity || 1,
+        discount: item.discount || 0,
+        bonus_quantity: item.bonus_quantity || 0,
+      };
+    });
+    
+    setCart(cartItems);
   };
 
   const addToCart = () => {
@@ -58,10 +151,25 @@ const NewSale = () => {
     if (!product) return;
 
     const existingItem = cart.find((item) => item.product.id === selectedProductId);
+    
+    // Calculate available stock for this session
+    let availableStock = product.stock;
+    
+    // In edit mode, account for the original quantity that will be released
+    if (editingSaleId) {
+      const originalItem = originalSaleItems.find(item => 
+        (item.product_id || item.productId) === selectedProductId
+      );
+      if (originalItem) {
+        // Add back the original total units (paid + bonus) to available stock for validation
+        const originalTotalUnits = originalItem.quantity + (originalItem.bonus_quantity || 0);
+        availableStock += originalTotalUnits;
+      }
+    }
 
     if (existingItem) {
-      if (existingItem.quantity + quantity > product.stock) {
-        toast.error("Insufficient stock");
+      if (existingItem.quantity + quantity > availableStock) {
+        toast.error(`Insufficient stock. Available: ${availableStock}`);
         return;
       }
       setCart(
@@ -72,27 +180,47 @@ const NewSale = () => {
         )
       );
     } else {
-      if (quantity > product.stock) {
-        toast.error("Insufficient stock");
+      if (quantity > availableStock) {
+        toast.error(`Insufficient stock. Available: ${availableStock}`);
         return;
       }
-      setCart([...cart, { product, quantity }]);
+      const discountValue = Number(itemDiscount) || 0;
+      const bonusValue = Number(bonusQuantity) || 0;
+      setCart([...cart, { product, quantity, discount: Math.max(0, discountValue), bonus_quantity: Math.max(0, bonusValue) }]);
     }
 
     setSelectedProductId("");
     setQuantity(1);
+    setItemDiscount(0);
+    setBonusQuantity(0);
     toast.success("Added to cart");
   };
 
   const updateCartQuantity = (productId, newQuantity) => {
     const product = products.find((p) => p.id === productId);
-    if (newQuantity > product.stock) {
-      toast.error("Insufficient stock");
-      return;
-    }
-
+    
     if (newQuantity <= 0) {
       removeFromCart(productId);
+      return;
+    }
+    
+    // Calculate available stock for this edit session
+    let availableStock = product.stock;
+    
+    // In edit mode, account for the original quantity that will be released
+    if (editingSaleId) {
+      const originalItem = originalSaleItems.find(item => 
+        (item.product_id || item.productId) === productId
+      );
+      if (originalItem) {
+        // Add back the original total units (paid + bonus) to available stock for validation
+        const originalTotalUnits = originalItem.quantity + (originalItem.bonus_quantity || 0);
+        availableStock += originalTotalUnits;
+      }
+    }
+    
+    if (newQuantity > availableStock) {
+      toast.error(`Insufficient stock. Available: ${availableStock}`);
       return;
     }
 
@@ -107,8 +235,43 @@ const NewSale = () => {
     setCart(cart.filter((item) => item.product.id !== productId));
   };
 
+  const calculateLineTotal = (item) => {
+    const price = item.product.selling_price ?? 0;
+    const qty = item.quantity;
+    const lineTotal = price * qty;
+    const discount = Math.max(0, Number(item.discount) || 0);
+    const effectiveDiscount = Math.min(discount, lineTotal);
+    return lineTotal - effectiveDiscount;
+  };
+
   const calculateSubtotal = () => {
-    return cart.reduce((sum, item) => sum + item.product.selling_price * item.quantity, 0);
+    return cart.reduce((sum, item) => sum + calculateLineTotal(item), 0);
+  };
+
+  const calculateFinalTotals = () => {
+    const subtotal = calculateSubtotal();
+    const percent = Math.max(0, Math.min(100, Number(finalDiscountPercent) || 0));
+    const finalDiscountAmount = subtotal * (percent / 100);
+    const total = subtotal - finalDiscountAmount;
+    return { subtotal, percent, finalDiscountAmount, total };
+  };
+
+  const updateCartDiscount = (productId, newDiscount) => {
+    const val = Math.max(0, Number(newDiscount) || 0);
+    setCart(
+      cart.map((item) =>
+        item.product.id === productId ? { ...item, discount: val } : item
+      )
+    );
+  };
+
+  const updateCartBonus = (productId, newBonus) => {
+    const val = Math.max(0, Number(newBonus) || 0);
+    setCart(
+      cart.map((item) =>
+        item.product.id === productId ? { ...item, bonus_quantity: val } : item
+      )
+    );
   };
 
   const finalizeSale = async () => {
@@ -117,29 +280,237 @@ const NewSale = () => {
       return;
     }
 
-    try {
-      const user = auth.currentUser;
-      const token = await user.getIdToken();
-
-      const saleData = {
-        items: cart.map((item) => ({
-          product_id: item.product.id,
-          quantity: item.quantity,
-        })),
-      };
-
-      const response = await axios.post(`${API}/sales`, saleData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      setInvoice(response.data);
-      setCart([]);
-      toast.success("Sale completed successfully!");
-      fetchProducts(); // Refresh stock levels
-    } catch (error) {
-      console.error("Failed to create sale:", error);
-      toast.error(error.response?.data?.detail || "Failed to complete sale");
+    if (!customerName.trim()) {
+      toast.error("Customer name is required");
+      return;
     }
+
+    try {
+      const { subtotal, percent, finalDiscountAmount, total } = calculateFinalTotals();
+      const usingMySQL = isUsingMySQL();
+      
+      if (usingMySQL) {
+        const salePayload = {
+          customer_name: customerName || null,
+          customer_phone: customerPhone || null,
+          customer_address: customerAddress || null,
+          deliveryman_name: deliverymanName || null,
+          discount_percentage: percent,
+          items: cart.map((item) => ({
+            product_id: item.product.id,
+            quantity: item.quantity,
+            discount: Math.max(0, Number(item.discount) || 0),
+            bonus_quantity: Math.max(0, Number(item.bonus_quantity) || 0),
+          })),
+        };
+
+        let invoiceData;
+        if (editingSaleId) {
+          // Update existing sale
+          invoiceData = await salesAPI.update(editingSaleId, salePayload);
+          toast.success("Sale re-finalized successfully!");
+        } else {
+          // Create new sale
+          invoiceData = await salesAPI.create(salePayload);
+          toast.success("Sale completed successfully!");
+        }
+
+        // Format invoice for display
+        const displayInvoice = {
+          id: invoiceData.id,
+          invoiceId: invoiceData.invoice_number,
+          invoice_number: invoiceData.invoice_number,
+          items: invoiceData.items.map((item) => ({
+            product_id: item.product_id,
+            productId: item.product_id,
+            product_name: item.product_name,
+            name: item.product_name,
+            sku: item.sku,
+            quantity: item.quantity,
+            unit_price: item.unit_price || item.price_per_unit || 0,
+            pricePerUnit: item.price_per_unit || item.unit_price || 0,
+            discount: item.discount || 0,
+            bonus_quantity: item.bonus_quantity || 0,
+            total: item.total || item.total_line_price || 0,
+            totalLinePrice: item.total_line_price || item.total || 0,
+          })),
+          subtotal: invoiceData.subtotal,
+          final_discount_percent: invoiceData.discount_percentage,
+          discountPercentage: invoiceData.discount_percentage,
+          final_discount_amount: invoiceData.final_discount_amount,
+          finalDiscountAmount: invoiceData.final_discount_amount,
+          total: invoiceData.final_total_amount || invoiceData.total,
+          finalTotalAmount: invoiceData.final_total_amount || invoiceData.total,
+          created_at: invoiceData.created_at || invoiceData.sale_timestamp,
+          saleTimestamp: invoiceData.sale_timestamp || invoiceData.created_at,
+          customer_name: invoiceData.customer_name,
+          customer_phone: invoiceData.customer_phone,
+          customer_address: invoiceData.customer_address,
+          deliveryman_name: invoiceData.deliveryman_name,
+        };
+
+        setInvoice(displayInvoice);
+        resetSaleForm();
+        fetchProducts();
+      } else {
+        const user = auth.currentUser;
+        if (!user) return;
+        
+        // Three-step atomic transaction: Reverse → Apply New → Update Record
+        const result = await runTransaction(firestore, async (transaction) => {
+          // STEP 1: Reverse original inventory (if editing)
+          if (editingSaleId) {
+            for (const item of originalSaleItems) {
+              const productId = item.product_id || item.productId;
+              if (!productId) continue;
+              
+              const productDocRef = doc(firestore, `users/${user.uid}/products`, productId);
+              const productDoc = await transaction.get(productDocRef);
+              
+              if (!productDoc.exists()) {
+                throw new Error(`Product ${item.name || productId} not found`);
+              }
+              
+              const currentStock = productDoc.data().stock;
+              const reversedStock = currentStock + item.quantity;
+              
+              transaction.update(productDocRef, { stock: reversedStock });
+            }
+          }
+          
+          // STEP 2: Validate and apply new quantities
+          const stockValidation = [];
+          
+          for (const item of cart) {
+            const productDocRef = doc(firestore, `users/${user.uid}/products`, item.product.id);
+            const productDoc = await transaction.get(productDocRef);
+            
+            if (!productDoc.exists()) {
+              throw new Error(`Product ${item.product.name} not found`);
+            }
+            
+            const currentStock = productDoc.data().stock;
+            const newStock = currentStock - item.quantity;
+            
+            if (newStock < 0) {
+              throw new Error(`Insufficient stock for ${item.product.name}. Available: ${currentStock}, Required: ${item.quantity}`);
+            }
+            
+            stockValidation.push({
+              ref: productDocRef,
+              newStock,
+            });
+          }
+          
+          // Apply stock updates
+          for (const update of stockValidation) {
+            transaction.update(update.ref, { stock: update.newStock });
+          }
+          
+          // STEP 3: Update or create the invoice record with enforced data structure
+          const saleData = {
+            // Unified Data Model (1.1)
+            invoiceId: editingSaleId || null, // Will be set after creation
+            saleTimestamp: serverTimestamp(),
+            items: cart.map((item) => ({
+              productId: item.product.id,
+              name: item.product.name,
+              sku: item.product.sku || '',
+              quantity: item.quantity,
+              pricePerUnit: item.product.selling_price ?? 0,
+              discount: Math.max(0, Number(item.discount) || 0),
+              bonus_quantity: Math.max(0, Number(item.bonus_quantity) || 0),
+              totalLinePrice: calculateLineTotal(item),
+            })),
+            discountPercentage: percent,
+            finalDiscountAmount: finalDiscountAmount,
+            finalTotalAmount: total,
+            subtotal,
+            // Additional fields
+            customer_name: customerName || null,
+            customer_phone: customerPhone || null,
+            customer_address: customerAddress || null,
+            deliveryman_name: deliverymanName || null,
+          };
+          
+          let saleDocRef;
+          
+          if (editingSaleId) {
+            // UPDATE existing sale - do NOT create new record
+            saleDocRef = doc(firestore, `users/${user.uid}/sales`, editingSaleId);
+            // Update with new timestamp
+            saleData.updated_at = serverTimestamp();
+            saleData.invoiceId = editingSaleId;
+            transaction.update(saleDocRef, saleData);
+          } else {
+            // Create new sale
+            const salesCollection = collection(firestore, `users/${user.uid}/sales`);
+            saleDocRef = doc(salesCollection);
+            saleData.created_at = serverTimestamp();
+            saleData.invoiceId = saleDocRef.id;
+            transaction.set(saleDocRef, saleData);
+          }
+          
+          return { saleDocRef, saleData };
+        });
+        
+        // Build invoice for display with unified structure
+        const invoiceData = {
+          id: editingSaleId || result.saleDocRef.id,
+          invoiceId: editingSaleId || result.saleDocRef.id,
+          invoice_number: editingSaleId || result.saleDocRef.id,
+          items: cart.map((item) => ({
+            product_id: item.product.id,
+            productId: item.product.id,
+            product_name: item.product.name,
+            name: item.product.name,
+            sku: item.product.sku,
+            quantity: item.quantity,
+            unit_price: item.product.selling_price ?? 0,
+            pricePerUnit: item.product.selling_price ?? 0,
+            discount: Math.max(0, Number(item.discount) || 0),
+            bonus_quantity: Math.max(0, Number(item.bonus_quantity) || 0),
+            total: calculateLineTotal(item),
+            totalLinePrice: calculateLineTotal(item),
+          })),
+          subtotal,
+          final_discount_percent: percent,
+          discountPercentage: percent,
+          final_discount_amount: finalDiscountAmount,
+          finalDiscountAmount: finalDiscountAmount,
+          total,
+          finalTotalAmount: total,
+          saleTimestamp: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          customer_name: customerName || null,
+          customer_phone: customerPhone || null,
+          customer_address: customerAddress || null,
+          deliveryman_name: deliverymanName || null,
+        };
+        
+        setInvoice(invoiceData);
+        toast.success(editingSaleId ? "Sale re-finalized successfully!" : "Sale completed successfully!");
+        resetSaleForm();
+        fetchProducts();
+      }
+    } catch (error) {
+      console.error("Failed to complete sale:", error);
+      toast.error(error.message || "Failed to complete sale");
+    }
+  };
+  
+  const resetSaleForm = () => {
+    setCart([]);
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustomerAddress("");
+    setDeliverymanName("");
+    setFinalDiscountPercent(0);
+    setEditingSaleId(null);
+    setOriginalSaleItems([]);
+    setInventoryReversed(false);
+    // Clear navigation state
+    navigate("/new-sale", { replace: true, state: {} });
   };
 
   const printInvoice = () => {
@@ -148,6 +519,7 @@ const NewSale = () => {
 
   const startNewSale = () => {
     setInvoice(null);
+    resetSaleForm();
   };
 
   if (loading) {
@@ -159,6 +531,17 @@ const NewSale = () => {
   }
 
   if (invoice) {
+    const skipLoginFlag = localStorage.getItem("skip-login") === "true";
+    
+    // Helper function to format date as dd/mm/yyyy
+    const formatDate = (dateString) => {
+      const date = new Date(dateString);
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+    
     return (
       <div className="space-y-6" data-testid="invoice-view">
         <div className="flex justify-between items-center no-print">
@@ -176,6 +559,25 @@ const NewSale = () => {
               <span>Print Invoice</span>
             </Button>
             <Button
+              onClick={() => {
+                // Clear invoice state first to avoid navigation issues
+                const invoiceToEdit = { ...invoice };
+                setInvoice(null);
+                
+                // Navigate with a clean state
+                setTimeout(() => {
+                  navigate("/new-sale", { 
+                    state: { editInvoice: invoiceToEdit },
+                    replace: true 
+                  });
+                }, 0);
+              }}
+              data-testid="edit-sale-button"
+              variant="outline"
+            >
+              Edit Sale
+            </Button>
+            <Button
               onClick={startNewSale}
               data-testid="new-sale-button"
               className="bg-gradient-to-r from-blue-500 to-green-500 hover:from-blue-600 hover:to-green-600"
@@ -191,11 +593,31 @@ const NewSale = () => {
               <div>
                 <CardTitle className="text-3xl">INVOICE</CardTitle>
                 <CardDescription className="mt-2">
-                  Invoice #: {invoice.invoice_number}
+                  Invoice #: {invoice.invoice_number || invoice.invoiceId}
                 </CardDescription>
                 <CardDescription>
-                  Date: {new Date(invoice.created_at).toLocaleDateString()}
+                  Date: {formatDate(invoice.created_at || invoice.saleTimestamp)}
                 </CardDescription>
+                {invoice.customer_name && (
+                  <div className="mt-3 space-y-1">
+                    <CardDescription className="font-semibold text-gray-900">
+                      Customer Details:
+                    </CardDescription>
+                    <CardDescription>
+                      Name: {invoice.customer_name}
+                    </CardDescription>
+                    {invoice.customer_phone && (
+                      <CardDescription>
+                        Mobile: {invoice.customer_phone}
+                      </CardDescription>
+                    )}
+                    {invoice.customer_address && (
+                      <CardDescription>
+                        Address: {invoice.customer_address}
+                      </CardDescription>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-600">From:</p>
@@ -212,6 +634,8 @@ const NewSale = () => {
                       <th className="text-left py-3 px-2">Item</th>
                       <th className="text-left py-3 px-2">SKU</th>
                       <th className="text-right py-3 px-2">Qty</th>
+                      <th className="text-right py-3 px-2">Bonus</th>
+                      <th className="text-right py-3 px-2">Total Qty</th>
                       <th className="text-right py-3 px-2">Unit Price</th>
                       <th className="text-right py-3 px-2">Total</th>
                     </tr>
@@ -219,14 +643,16 @@ const NewSale = () => {
                   <tbody>
                     {invoice.items.map((item, idx) => (
                       <tr key={idx} className="border-b" data-testid={`invoice-item-${idx}`}>
-                        <td className="py-3 px-2">{item.product_name}</td>
+                        <td className="py-3 px-2">{item.product_name || item.name}</td>
                         <td className="py-3 px-2">{item.sku}</td>
                         <td className="text-right py-3 px-2">{item.quantity}</td>
+                        <td className="text-right py-3 px-2">{item.bonus_quantity || 0}</td>
+                        <td className="text-right py-3 px-2 font-semibold">{item.quantity + (item.bonus_quantity || 0)}</td>
                         <td className="text-right py-3 px-2">
-                          ${item.unit_price.toFixed(2)}
+                          PKR {(item.unit_price || item.pricePerUnit || 0).toFixed(2)}
                         </td>
                         <td className="text-right py-3 px-2">
-                          ${item.total.toFixed(2)}
+                          PKR {(item.total || item.totalLinePrice || 0).toFixed(2)}
                         </td>
                       </tr>
                     ))}
@@ -239,11 +665,17 @@ const NewSale = () => {
                   <div className="w-64">
                     <div className="flex justify-between py-2">
                       <span className="text-gray-600">Subtotal:</span>
-                      <span className="font-medium">${invoice.subtotal.toFixed(2)}</span>
+                      <span className="font-medium">PKR {invoice.subtotal.toFixed(2)}</span>
                     </div>
+                    {(invoice.final_discount_percent > 0 || invoice.discountPercentage > 0) && (
+                      <div className="flex justify-between py-2">
+                        <span className="text-gray-600">Discount ({invoice.final_discount_percent || invoice.discountPercentage}%):</span>
+                        <span className="font-medium text-red-600">-PKR {(invoice.final_discount_amount || invoice.finalDiscountAmount || 0).toFixed(2)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between py-2 border-t font-bold text-lg">
                       <span>Total:</span>
-                      <span data-testid="invoice-total">${invoice.total.toFixed(2)}</span>
+                      <span data-testid="invoice-total">PKR {(invoice.total || invoice.finalTotalAmount || 0).toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -251,6 +683,19 @@ const NewSale = () => {
 
               <div className="text-center text-sm text-gray-600 mt-8 pt-8 border-t">
                 <p>Thank you for your business!</p>
+                {invoice.deliveryman_name && (
+                  <div className="mt-6 flex justify-around">
+                    <div className="text-center">
+                      <p className="mb-8">_______________________</p>
+                      <p className="font-semibold">Store Incharge Signature</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="mb-8">_______________________</p>
+                      <p className="font-semibold">Deliveryman Signature</p>
+                      <p className="text-xs mt-1">({invoice.deliveryman_name})</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
@@ -262,8 +707,19 @@ const NewSale = () => {
   return (
     <div className="space-y-6" data-testid="new-sale-page">
       <div>
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">New Sale</h1>
-        <p className="text-gray-600">Create a new sale and generate invoice</p>
+        <h1 className="text-4xl font-bold text-gray-900 mb-2">
+          {editingSaleId ? "Edit Sale" : "New Sale"}
+        </h1>
+        <p className="text-gray-600">
+          {editingSaleId ? "Modify the sale and re-finalize to save changes" : "Create a new sale and generate invoice"}
+        </p>
+        {editingSaleId && (
+          <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-md">
+            <p className="text-sm text-amber-800 font-medium">
+              ⚠️ Editing Mode: When you click "Re-Finalize Sale", the original inventory will be reversed and new quantities will be applied atomically.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -274,43 +730,106 @@ const NewSale = () => {
               <CardTitle>Add Products</CardTitle>
               <CardDescription>Select products to add to the cart</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <Label>Product</Label>
-                  <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                    <SelectTrigger data-testid="product-select">
-                      <SelectValue placeholder="Select a product" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {products.map((product) => (
-                        <SelectItem key={product.id} value={product.id} data-testid={`product-option-${product.id}`}>
-                          {product.name} (${product.selling_price.toFixed(2)}) - Stock:
-                          {product.stock}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="w-32">
-                  <Label>Quantity</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    data-testid="quantity-input"
-                    value={quantity}
-                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button onClick={addToCart} data-testid="add-to-cart-button" className="flex items-center space-x-2">
-                    <Plus className="w-4 h-4" />
-                    <span>Add</span>
-                  </Button>
-                </div>
+          <CardContent>
+            <div className="mb-4">
+              <Label>Customer Name</Label>
+              <Input
+                type="text"
+                placeholder="Enter customer name"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                data-testid="customer-name-input"
+              />
+            </div>
+            <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Mobile Number (optional)</Label>
+                <Input
+                  type="tel"
+                  placeholder="Enter mobile number"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  data-testid="customer-phone-input"
+                />
               </div>
+              <div>
+                <Label>Address (optional)</Label>
+                <Input
+                  type="text"
+                  placeholder="Enter address"
+                  value={customerAddress}
+                  onChange={(e) => setCustomerAddress(e.target.value)}
+                  data-testid="customer-address-input"
+                />
+              </div>
+            </div>
+            <div className="mb-4">
+              <Label>Deliveryman Name (optional)</Label>
+              <Input
+                type="text"
+                placeholder="Enter deliveryman name"
+                value={deliverymanName}
+                onChange={(e) => setDeliverymanName(e.target.value)}
+                data-testid="deliveryman-name-input"
+              />
+            </div>
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <Label>Product</Label>
+                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                  <SelectTrigger data-testid="product-select">
+                    <SelectValue placeholder="Select a product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products.filter(p => p.stock > 0 || editingSaleId).map((product) => (
+                      <SelectItem key={product.id} value={product.id} data-testid={`product-option-${product.id}`}>
+                        {product.name} (PKR {(product.selling_price ?? 0).toFixed(2)}) - Stock:
+                        {product.stock}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-32">
+                <Label>Quantity</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  data-testid="quantity-input"
+                  value={quantity}
+                  onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                />
+              </div>
+              <div className="w-32">
+                <Label>Bonus Qty</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  data-testid="bonus-quantity-input"
+                  value={bonusQuantity}
+                  onChange={(e) => setBonusQuantity(parseInt(e.target.value) || 0)}
+                />
+              </div>
+           {/*    <div className="w-40">
+                <Label>Discount (amount)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  data-testid="add-discount-input"
+                  value={itemDiscount}
+                  onChange={(e) => setItemDiscount(e.target.value)}
+                />
+              </div> */}
+              <div className="flex items-end">
+                <Button onClick={addToCart} data-testid="add-to-cart-button" className="flex items-center space-x-2">
+                  <Plus className="w-4 h-4" />
+                  <span>Add</span>
+                </Button>
+              </div>
+            </div>
 
-              {products.length === 0 && (
+              {products.filter(p => p.stock > 0 || editingSaleId).length === 0 && (
                 <div className="text-center py-8 text-gray-500">
                   No products available with stock. Add products first!
                 </div>
@@ -344,8 +863,36 @@ const NewSale = () => {
                           <div className="flex-1">
                             <p className="font-medium text-sm">{item.product.name}</p>
                             <p className="text-xs text-gray-600">
-                              ${item.product.selling_price.toFixed(2)} each
+                              PKR {(item.product.selling_price ?? 0).toFixed(2)} each
                             </p>
+                            <div className="mt-2 flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <Label className="text-xs font-medium text-gray-700">Bonus:</Label>
+                                <Input
+                                  className="h-8 w-20 text-center rounded-md border-gray-300"
+                                  type="number"
+                                  min="0"
+                                  value={item.bonus_quantity ?? 0}
+                                  onChange={(e) => updateCartBonus(item.product.id, e.target.value)}
+                                  data-testid={`cart-bonus-${item.product.id}`}
+                                />
+                              </div>
+                              <div className="text-xs text-gray-600 font-medium">
+                                Total Units: <span className="text-blue-600">{item.quantity + (item.bonus_quantity || 0)}</span>
+                              </div>
+                            </div>
+                           {/*  <div className="mt-2 flex items-center space-x-2">
+                              <Label className="text-xs">Discount:</Label>
+                              <Input
+                                className="h-7 w-24"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.discount ?? 0}
+                                onChange={(e) => updateCartDiscount(item.product.id, e.target.value)}
+                                data-testid={`cart-discount-${item.product.id}`}
+                              />
+                            </div> */}
                           </div>
                           <div className="flex items-center space-x-2">
                             <Button
@@ -393,11 +940,29 @@ const NewSale = () => {
                     <div className="border-t pt-4 space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Subtotal:</span>
-                        <span className="font-medium">${calculateSubtotal().toFixed(2)}</span>
+                        <span className="font-medium">PKR {calculateSubtotal().toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">Final Discount (%):</span>
+                        <div className="flex items-center space-x-2">
+                          <Input
+                            className="h-8 w-24 text-right"
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            value={finalDiscountPercent}
+                            onChange={(e) => setFinalDiscountPercent(e.target.value)}
+                            data-testid="final-discount-percent-input"
+                          />
+                          <span className="text-gray-600">
+                            -PKR {(calculateFinalTotals().finalDiscountAmount).toFixed(2)}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex justify-between font-bold text-lg">
                         <span>Total:</span>
-                        <span data-testid="cart-total">${calculateSubtotal().toFixed(2)}</span>
+                        <span data-testid="cart-total">PKR {calculateFinalTotals().total.toFixed(2)}</span>
                       </div>
                     </div>
 
@@ -406,8 +971,25 @@ const NewSale = () => {
                       data-testid="finalize-sale-button"
                       className="w-full bg-gradient-to-r from-blue-500 to-green-500 hover:from-blue-600 hover:to-green-600"
                     >
-                      Finalize Sale
+                      {editingSaleId ? "Re-Finalize Sale" : "Finalize Sale"}
                     </Button>
+                    {editingSaleId && (
+                      <Button
+                        onClick={() => {
+                          const confirmed = window.confirm(
+                            "Are you sure you want to cancel editing? This will not restore the original sale data. You can safely navigate away and the original sale remains unchanged."
+                          );
+                          if (confirmed) {
+                            navigate("/sales-history");
+                          }
+                        }}
+                        variant="outline"
+                        className="w-full mt-2"
+                        data-testid="cancel-edit-button"
+                      >
+                        Cancel Edit
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
