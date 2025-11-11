@@ -10,7 +10,14 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Package } from "lucide-react";
 
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000/api";
+// Use the same API base configuration as in api.js
+const API_BASE = (
+  process.env.REACT_APP_API_BASE ||
+  (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : `https://realgiveaways.com/api.php/api`)
+);
+
+// Ensure API_BASE ends with /api for proper routing
+const BASE_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`;
 
 const AuthPage = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -21,7 +28,8 @@ const AuthPage = () => {
   const handleMySQLLogin = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/login`, {
+      // Use /api/login instead of /login to match backend routing
+      const response = await fetch(`${BASE_URL}/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -29,9 +37,19 @@ const AuthPage = () => {
         body: JSON.stringify({ username, password }),
       });
 
+      // Clone the response before reading it to avoid "Response body is already used" error
+      const responseClone = response.clone();
+      
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || "Login failed");
+        const errorText = await responseClone.text();
+        let errorMessage = "Login failed";
+        try {
+          const error = JSON.parse(errorText);
+          errorMessage = error.detail || errorMessage;
+        } catch (e) {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();

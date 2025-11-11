@@ -8,7 +8,13 @@ import Dashboard from "@/pages/Dashboard";
 import Products from "@/pages/Products";
 import NewSale from "@/pages/NewSale";
 import SalesHistory from "@/pages/SalesHistory";
+import RestockSlip from "@/pages/RestockSlip";
+import RestockTransactions from "@/pages/RestockTransactions";
 import { Toaster } from "@/components/ui/sonner";
+
+// System Branding Configuration
+export const SYSTEM_NAME = "Easy Stock";
+export const SYSTEM_TAGLINE = "Smart Inventory Management";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -89,6 +95,30 @@ function App() {
               user || skipLogin ? (
                 <DashboardLayout>
                   <SalesHistory />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
+            path="/restock/:restockId"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <RestockSlip />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
+            path="/restock-transactions"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <RestockTransactions />
                 </DashboardLayout>
               ) : (
                 <Navigate to="/auth" />

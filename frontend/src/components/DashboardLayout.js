@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { isUsingMySQL } from "@/lib/api";
+import { SYSTEM_NAME } from "@/App";
 
 const DashboardLayout = ({ children }) => {
   const location = useLocation();
@@ -49,6 +50,7 @@ const DashboardLayout = ({ children }) => {
     { path: "/products", label: "Products", icon: Package, testId: "nav-products" },
     { path: "/new-sale", label: "New Sale", icon: ShoppingCart, testId: "nav-new-sale" },
     { path: "/sales-history", label: "Sales History", icon: Receipt, testId: "nav-sales-history" },
+    { path: "/restock-transactions", label: "Restock", icon: Package, testId: "nav-restock" },
   ];
 
   return (
@@ -62,7 +64,7 @@ const DashboardLayout = ({ children }) => {
                 <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center">
                   <Package className="w-6 h-6 text-white" />
                 </div>
-                <h1 className="text-2xl font-bold text-gray-900">Easy Inventory</h1>
+                <h1 className="text-2xl font-bold text-gray-900">{SYSTEM_NAME}</h1>
               </div>
             </div>
 

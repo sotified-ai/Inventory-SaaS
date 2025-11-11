@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { auth, firestore } from "@/config/firebase";
 import { Button } from "@/components/ui/button";
@@ -24,14 +24,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { productsAPI, salesAPI, isUsingMySQL } from "@/lib/api";
+import { productsAPI, salesAPI, categoriesAPI, isUsingMySQL } from "@/lib/api";
+import { SYSTEM_NAME } from "@/App";
 
 const NewSale = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]); // Add categories state
   const [cart, setCart] = useState([]);
   const [selectedProductId, setSelectedProductId] = useState("");
+  const [productSearchQuery, setProductSearchQuery] = useState(""); // Add search query state
+  const [showProductDropdown, setShowProductDropdown] = useState(false); // Dropdown visibility
   const [quantity, setQuantity] = useState(1);
   const [loading, setLoading] = useState(true);
   const [invoice, setInvoice] = useState(null);
@@ -45,6 +49,7 @@ const NewSale = () => {
   const [itemDiscount, setItemDiscount] = useState(0);
   const [bonusQuantity, setBonusQuantity] = useState(0);
   const [finalDiscountPercent, setFinalDiscountPercent] = useState(0);
+  const dropdownRef = useRef(null); // Ref for dropdown container
   const API_BASE = `${process.env.REACT_APP_BACKEND_URL}/api`;
   const getDevToken = () => {
     let id = localStorage.getItem("dev-user-id");
@@ -55,8 +60,23 @@ const NewSale = () => {
     return id;
   };
 
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowProductDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   useEffect(() => {
     fetchProducts();
+    fetchCategories(); // Fetch categories for display
     
     // Check if we're editing a sale from navigation state
     if (location.state?.editInvoice) {
@@ -89,6 +109,19 @@ const NewSale = () => {
     }
   };
   
+  const fetchCategories = async () => {
+    const usingMySQL = isUsingMySQL();
+    if (!usingMySQL) return;
+    
+    try {
+      const data = await categoriesAPI.getAll();
+      setCategories(data);
+    } catch (error) {
+      console.error("Failed to fetch categories:", error);
+      // Categories are optional, don't show error
+    }
+  };
+  
   const loadInvoiceForEditing = async (invoice) => {
     setEditingSaleId(invoice.id || invoice.invoiceId);
     setOriginalSaleItems(invoice.items || []);
@@ -96,7 +129,11 @@ const NewSale = () => {
     setCustomerPhone(invoice.customer_phone || "");
     setCustomerAddress(invoice.customer_address || "");
     setDeliverymanName(invoice.deliveryman_name || "");
-    setFinalDiscountPercent(invoice.final_discount_percent || invoice.discountPercentage || 0);
+    
+    // CRITICAL FIX: Restore discount percentage when editing
+    // Support multiple field name variations for compatibility
+    const discountPercent = invoice.discount_percentage || invoice.final_discount_percent || invoice.discountPercentage || 0;
+    setFinalDiscountPercent(discountPercent);
     
     // In Firebase mode, we DON'T reverse inventory immediately
     // Instead, we'll do it atomically during re-finalization
@@ -190,10 +227,40 @@ const NewSale = () => {
     }
 
     setSelectedProductId("");
+    setProductSearchQuery(""); // Clear search query
     setQuantity(1);
     setItemDiscount(0);
     setBonusQuantity(0);
     toast.success("Added to cart");
+  };
+  
+  // Filter products based on search query (by name or SKU)
+  const getFilteredProducts = () => {
+    if (!productSearchQuery.trim()) {
+      return products.filter(p => p.stock > 0 || editingSaleId);
+    }
+    
+    const query = productSearchQuery.toLowerCase();
+    return products
+      .filter(p => p.stock > 0 || editingSaleId)
+      .filter(p => 
+        p.name.toLowerCase().includes(query) || 
+        (p.sku && p.sku.toLowerCase().includes(query))
+      );
+  };
+  
+  // Get category name by ID
+  const getCategoryName = (categoryId) => {
+    if (!categoryId) return null;
+    const category = categories.find(c => c.id === categoryId);
+    return category ? category.name : null;
+  };
+  
+  // Select product from search results
+  const selectProductFromSearch = (product) => {
+    setSelectedProductId(product.id);
+    setProductSearchQuery(product.name);
+    setShowProductDropdown(false);
   };
 
   const updateCartQuantity = (productId, newQuantity) => {
@@ -236,8 +303,10 @@ const NewSale = () => {
   };
 
   const calculateLineTotal = (item) => {
+    // CRITICAL: Revenue calculation uses ONLY paid quantity, NOT bonus
+    // Bonus items contribute to stock deduction but have ZERO cost/revenue impact
     const price = item.product.selling_price ?? 0;
-    const qty = item.quantity;
+    const qty = item.quantity; // Paid quantity only
     const lineTotal = price * qty;
     const discount = Math.max(0, Number(item.discount) || 0);
     const effectiveDiscount = Math.min(discount, lineTotal);
@@ -290,18 +359,32 @@ const NewSale = () => {
       const usingMySQL = isUsingMySQL();
       
       if (usingMySQL) {
+        // Calculate totals for each item first
+        const itemsWithTotals = cart.map((item) => {
+          const lineTotal = calculateLineTotal(item);
+          return {
+            product_id: item.product.id,
+            product_name: item.product.name,
+            sku: item.product.sku || '',
+            quantity: item.quantity,
+            unit_price: item.product.selling_price,
+            discount: Math.max(0, Number(item.discount) || 0),
+            bonus_quantity: Math.max(0, Number(item.bonus_quantity) || 0),
+            total: lineTotal,
+          };
+        });
+
         const salePayload = {
           customer_name: customerName || null,
           customer_phone: customerPhone || null,
           customer_address: customerAddress || null,
           deliveryman_name: deliverymanName || null,
+          subtotal: subtotal,
+          total: subtotal,
           discount_percentage: percent,
-          items: cart.map((item) => ({
-            product_id: item.product.id,
-            quantity: item.quantity,
-            discount: Math.max(0, Number(item.discount) || 0),
-            bonus_quantity: Math.max(0, Number(item.bonus_quantity) || 0),
-          })),
+          final_discount_amount: finalDiscountAmount,
+          final_total_amount: total,
+          items: itemsWithTotals,
         };
 
         let invoiceData;
@@ -591,7 +674,8 @@ const NewSale = () => {
           <CardHeader>
             <div className="flex justify-between items-start">
               <div>
-                <CardTitle className="text-3xl">INVOICE</CardTitle>
+                <CardTitle className="text-3xl">{SYSTEM_NAME}</CardTitle>
+                <CardTitle className="text-2xl mt-2">INVOICE</CardTitle>
                 <CardDescription className="mt-2">
                   Invoice #: {invoice.invoice_number || invoice.invoiceId}
                 </CardDescription>
@@ -628,30 +712,30 @@ const NewSale = () => {
           <CardContent>
             <div className="space-y-6">
               <div>
-                <table className="w-full">
+                <table className="w-full border-collapse">
                   <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-2">Item</th>
-                      <th className="text-left py-3 px-2">SKU</th>
-                      <th className="text-right py-3 px-2">Qty</th>
-                      <th className="text-right py-3 px-2">Bonus</th>
-                      <th className="text-right py-3 px-2">Total Qty</th>
-                      <th className="text-right py-3 px-2">Unit Price</th>
-                      <th className="text-right py-3 px-2">Total</th>
+                    <tr className="border-b-2 border-gray-300 bg-gray-50">
+                      <th className="text-left py-3 px-2 font-semibold">Item</th>
+                      <th className="text-left py-3 px-2 font-semibold">SKU</th>
+                      <th className="text-right py-3 px-2 font-semibold">Qty</th>
+                      <th className="text-right py-3 px-2 font-semibold">Bonus</th>
+                      <th className="text-right py-3 px-2 font-semibold">Total Qty</th>
+                      <th className="text-right py-3 px-2 font-semibold">Unit Price</th>
+                      <th className="text-right py-3 px-2 font-semibold">Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {invoice.items.map((item, idx) => (
-                      <tr key={idx} className="border-b" data-testid={`invoice-item-${idx}`}>
+                      <tr key={idx} className="border-b border-gray-200 hover:bg-gray-50" data-testid={`invoice-item-${idx}`}>
                         <td className="py-3 px-2">{item.product_name || item.name}</td>
-                        <td className="py-3 px-2">{item.sku}</td>
+                        <td className="py-3 px-2 text-gray-600">{item.sku}</td>
                         <td className="text-right py-3 px-2">{item.quantity}</td>
                         <td className="text-right py-3 px-2">{item.bonus_quantity || 0}</td>
                         <td className="text-right py-3 px-2 font-semibold">{item.quantity + (item.bonus_quantity || 0)}</td>
                         <td className="text-right py-3 px-2">
                           PKR {(item.unit_price || item.pricePerUnit || 0).toFixed(2)}
                         </td>
-                        <td className="text-right py-3 px-2">
+                        <td className="text-right py-3 px-2 font-medium">
                           PKR {(item.total || item.totalLinePrice || 0).toFixed(2)}
                         </td>
                       </tr>
@@ -774,21 +858,57 @@ const NewSale = () => {
               />
             </div>
             <div className="flex gap-4">
-              <div className="flex-1">
-                <Label>Product</Label>
-                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                  <SelectTrigger data-testid="product-select">
-                    <SelectValue placeholder="Select a product" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products.filter(p => p.stock > 0 || editingSaleId).map((product) => (
-                      <SelectItem key={product.id} value={product.id} data-testid={`product-option-${product.id}`}>
-                        {product.name} (PKR {(product.selling_price ?? 0).toFixed(2)}) - Stock:
-                        {product.stock}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="flex-1 relative" ref={dropdownRef}>
+                <Label>Product (Search by name or SKU)</Label>
+                <Input
+                  type="text"
+                  placeholder="Type to search products..."
+                  value={productSearchQuery}
+                  onChange={(e) => {
+                    setProductSearchQuery(e.target.value);
+                    setShowProductDropdown(true);
+                  }}
+                  onFocus={() => setShowProductDropdown(true)}
+                  data-testid="product-search-input"
+                  className="w-full"
+                />
+                {showProductDropdown && productSearchQuery.trim() && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    {getFilteredProducts().length > 0 ? (
+                      getFilteredProducts().map((product) => {
+                        const categoryName = getCategoryName(product.category_id);
+                        return (
+                          <div
+                            key={product.id}
+                            onClick={() => selectProductFromSearch(product)}
+                            className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100"
+                            data-testid={`product-search-result-${product.id}`}
+                          >
+                            <div className="font-medium text-sm">
+                              {product.name}
+                              {categoryName && (
+                                <span className="ml-2 text-xs text-gray-500">
+                                  (Category: {categoryName})
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              SKU: {product.sku} | PKR {(product.selling_price ?? 0).toFixed(2)} | 
+                              {product.stock === 0 ? 
+                                <span className="text-red-500 font-bold">Out of Stock</span> : 
+                                <span>Stock: {product.stock}</span>
+                              }
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="px-4 py-3 text-sm text-gray-500">
+                        No products found matching "{productSearchQuery}"
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="w-32">
                 <Label>Quantity</Label>
@@ -861,7 +981,14 @@ const NewSale = () => {
                           data-testid={`cart-item-${item.product.id}`}
                         >
                           <div className="flex-1">
-                            <p className="font-medium text-sm">{item.product.name}</p>
+                            <p className="font-medium text-sm">
+                              {item.product.name}
+                              {getCategoryName(item.product.category_id) && (
+                                <span className="ml-2 text-xs text-gray-500">
+                                  (Category: {getCategoryName(item.product.category_id)})
+                                </span>
+                              )}
+                            </p>
                             <p className="text-xs text-gray-600">
                               PKR {(item.product.selling_price ?? 0).toFixed(2)} each
                             </p>

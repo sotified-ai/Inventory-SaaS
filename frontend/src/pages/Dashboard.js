@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { auth, firestore } from "@/config/firebase";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -11,6 +12,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { dashboardAPI, productsAPI, isUsingMySQL } from "@/lib/api";
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [itemizedSales, setItemizedSales] = useState(null);
@@ -21,20 +23,37 @@ const Dashboard = () => {
   const [isProductDetailOpen, setIsProductDetailOpen] = useState(false);
 
   useEffect(() => {
-    fetchStats();
-    fetchProducts();
-    fetchItemizedSales('today');
+    // Only fetch data if user is authenticated
+    const usingMySQL = isUsingMySQL();
+    if (usingMySQL) {
+      fetchStats();
+      fetchProducts();
+      fetchItemizedSales('today');
+    }
   }, []);
 
   const fetchProducts = async () => {
     const usingMySQL = isUsingMySQL();
     if (!usingMySQL) return;
+    
+    // Check if token exists before making request
+    const token = localStorage.getItem("mysql-token");
+    if (!token) {
+      console.log("No authentication token found");
+      return;
+    }
 
     try {
       const data = await productsAPI.getAll();
       setProducts(data);
     } catch (error) {
       console.error("Failed to fetch products:", error);
+      // Redirect to login if unauthorized
+      if (error.message.includes("Authorization header missing") || error.message.includes("401")) {
+        localStorage.removeItem("mysql-token");
+        localStorage.removeItem("skip-login");
+        window.location.href = "/auth";
+      }
     }
   };
 
@@ -48,11 +67,9 @@ const Dashboard = () => {
 
   const fetchStats = async () => {
     const usingMySQL = isUsingMySQL();
-    try {
-      if (usingMySQL) {
-        const data = await dashboardAPI.getStats();
-        setStats(data);
-      } else {
+    if (!usingMySQL) {
+      // Firebase mode - existing code
+      try {
         const user = auth.currentUser;
         if (!user) return;
 
@@ -110,9 +127,34 @@ const Dashboard = () => {
           solid_profit: solidProfit,
           total_discount: totalDiscount,
         });
+      } catch (error) {
+        console.error("Failed to fetch stats:", error);
+      } finally {
+        setLoading(false);
       }
+      return;
+    }
+    
+    // MySQL mode
+    try {
+      // Check if token exists before making request
+      const token = localStorage.getItem("mysql-token");
+      if (!token) {
+        console.log("No authentication token found");
+        setLoading(false);
+        return;
+      }
+      
+      const data = await dashboardAPI.getStats();
+      setStats(data);
     } catch (error) {
       console.error("Failed to fetch stats:", error);
+      // Redirect to login if unauthorized
+      if (error.message.includes("Authorization header missing") || error.message.includes("401")) {
+        localStorage.removeItem("mysql-token");
+        localStorage.removeItem("skip-login");
+        window.location.href = "/auth";
+      }
     } finally {
       setLoading(false);
     }
@@ -122,6 +164,13 @@ const Dashboard = () => {
     const usingMySQL = isUsingMySQL();
     if (!usingMySQL) return; // Only for MySQL mode
     
+    // Check if token exists before making request
+    const token = localStorage.getItem("mysql-token");
+    if (!token) {
+      console.log("No authentication token found");
+      return;
+    }
+    
     setLoadingItemized(true);
     try {
       const data = await dashboardAPI.getItemizedSales(range);
@@ -129,6 +178,12 @@ const Dashboard = () => {
       setSelectedRange(range);
     } catch (error) {
       console.error("Failed to fetch itemized sales:", error);
+      // Redirect to login if unauthorized
+      if (error.message.includes("Authorization header missing") || error.message.includes("401")) {
+        localStorage.removeItem("mysql-token");
+        localStorage.removeItem("skip-login");
+        window.location.href = "/auth";
+      }
     } finally {
       setLoadingItemized(false);
     }
@@ -165,19 +220,25 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        <Card className="glass-effect hover-lift border-0" data-testid="stat-low-stock">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">
-              Low Stock Items
-            </CardTitle>
-            <AlertCircle className="h-5 w-5 text-orange-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">
-              {stats?.low_stock_count || 0}
-            </div>
-          </CardContent>
-        </Card>
+        <div 
+          className="cursor-pointer" 
+          onClick={() => navigate('/products?filter=low-stock')}
+          data-testid="stat-low-stock"
+        >
+          <Card className="glass-effect hover-lift border-0">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">
+                Low Stock Items
+              </CardTitle>
+              <AlertCircle className="h-5 w-5 text-orange-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-gray-900">
+                {stats?.low_stock_count || 0}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         <Card className="glass-effect hover-lift border-0" data-testid="stat-total-sales">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -371,25 +432,25 @@ const Dashboard = () => {
                               </Button>
                             </div>
                           </TableCell>
-                          <TableCell className="text-right">{item.total_quantity_sold}</TableCell>
-                          <TableCell className="text-right">{item.unit_price.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-semibold">{item.total_line_revenue.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{item.total_quantity_sold || 0}</TableCell>
+                          <TableCell className="text-right">{(item.unit_price || 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-semibold">{(item.total_line_revenue || 0).toFixed(2)}</TableCell>
                         </TableRow>
                       ))}
                       <TableRow className="bg-gray-50 font-bold">
                         <TableCell>Total</TableCell>
-                        <TableCell className="text-right">{itemizedSales.total_quantity}</TableCell>
+                        <TableCell className="text-right">{itemizedSales.total_quantity || 0}</TableCell>
                         <TableCell className="text-right">-</TableCell>
-                        <TableCell className="text-right">PKR {itemizedSales.total_revenue.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">PKR {(itemizedSales.total_revenue || 0).toFixed(2)}</TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
                 </div>
                 <div className="mt-4 text-sm text-gray-600 space-y-1">
                   <p className="font-medium">Summary:</p>
-                  <p>• {itemizedSales.total_items} unique product(s) sold</p>
-                  <p>• Total Units Sold: {itemizedSales.total_quantity} (includes paid + bonus quantities)</p>
-                  <p>• Total Revenue: PKR {itemizedSales.total_revenue.toFixed(2)} (based on paid quantities only)</p>
+                  <p>• {itemizedSales.total_items || 0} unique product(s) sold</p>
+                  <p>• Total Units Sold: {itemizedSales.total_quantity || 0} (includes paid + bonus quantities)</p>
+                  <p>• Total Revenue: PKR {(itemizedSales.total_revenue || 0).toFixed(2)} (based on paid quantities only)</p>
                 </div>
               </>
             ) : (

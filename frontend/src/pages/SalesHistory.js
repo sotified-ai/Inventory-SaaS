@@ -25,6 +25,7 @@ import { collection, query, where, orderBy, onSnapshot, Timestamp, doc, runTrans
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { salesAPI, productsAPI, isUsingMySQL } from "@/lib/api";
+import { SYSTEM_NAME } from "@/App";
 
 const SalesHistory = () => {
   const navigate = useNavigate();
@@ -302,8 +303,9 @@ const SalesHistory = () => {
         <body>
           <div class="header">
             <div>
-              <div class="invoice-title">INVOICE</div>
+              <div class="invoice-title">{SYSTEM_NAME}</div>
               <div class="invoice-info">
+                <div style="font-size: 24px; margin: 10px 0;">INVOICE</div>
                 <div>Invoice #: ${invoice.invoice_number}</div>
                 <div>Date: ${formatDate(invoice.created_at)}</div>
               </div>
