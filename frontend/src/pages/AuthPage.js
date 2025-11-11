@@ -1,76 +1,89 @@
 import { useState } from "react";
-import { auth } from "@/App";
+import { auth } from "@/config/firebase";
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
+  signInAnonymously 
 } from "firebase/auth";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import axios from "axios";
 import { Package } from "lucide-react";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+// Use the same API base configuration as in api.js
+const API_BASE = (
+  process.env.REACT_APP_API_BASE ||
+  (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : `https://realgiveaways.com/api.php/api`)
+);
+
+// Ensure API_BASE ends with /api for proper routing
+const BASE_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`;
 
 const AuthPage = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const [signupData, setSignupData] = useState({
-    email: "",
-    password: "",
-    businessName: "",
-  });
-  const [loginData, setLoginData] = useState({
-    email: "",
-    password: "",
-  });
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("admin");
+  const [useMySQL, setUseMySQL] = useState(true);
 
-  const handleSignup = async (e) => {
-    e.preventDefault();
+  const handleMySQLLogin = async () => {
     setIsLoading(true);
-
     try {
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        signupData.email,
-        signupData.password
-      );
-
-      // Create user profile in backend
-      await axios.post(`${API}/users`, {
-        email: signupData.email,
-        business_name: signupData.businessName,
+      // Use /api/login instead of /login to match backend routing
+      const response = await fetch(`${BASE_URL}/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
       });
 
-      toast.success("Account created successfully!");
+      // Clone the response before reading it to avoid "Response body is already used" error
+      const responseClone = response.clone();
+      
+      if (!response.ok) {
+        const errorText = await responseClone.text();
+        let errorMessage = "Login failed";
+        try {
+          const error = JSON.parse(errorText);
+          errorMessage = error.detail || errorMessage;
+        } catch (e) {
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      localStorage.setItem("mysql-token", data.token);
+      localStorage.setItem("mysql-username", data.username);
+      localStorage.setItem("skip-login", "true");
+      toast.success(`Welcome ${data.username}!`);
+      window.location.reload();
     } catch (error) {
-      console.error("Signup error:", error);
-      toast.error(error.message || "Failed to create account");
+      console.error("MySQL login error:", error);
+      toast.error(error.message || "Failed to login");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
+  const handleAnonymousLogin = async () => {
     setIsLoading(true);
-
     try {
-      await signInWithEmailAndPassword(
-        auth,
-        loginData.email,
-        loginData.password
-      );
-      toast.success("Logged in successfully!");
+      await signInAnonymously(auth);
+      localStorage.removeItem("skip-login");
+      toast.success("Signed in anonymously!");
     } catch (error) {
-      console.error("Login error:", error);
-      toast.error(error.message || "Failed to log in");
+      console.error("Anonymous sign-in error:", error);
+      toast.error(error.message || "Failed to sign in anonymously");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSkipLogin = () => {
+    localStorage.setItem("skip-login", "true");
+    localStorage.setItem("mysql-token", "dev-user-001");
+    window.location.reload();
   };
 
   return (
@@ -80,7 +93,7 @@ const AuthPage = () => {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-green-500 rounded-2xl mb-4">
             <Package className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">InvenTrack</h1>
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">Easy Inventory</h1>
           <p className="text-gray-600">Smart Inventory & Billing System</p>
         </div>
 
@@ -88,117 +101,79 @@ const AuthPage = () => {
           <CardHeader>
             <CardTitle className="text-2xl">Welcome</CardTitle>
             <CardDescription>
-              Sign in to your account or create a new one
+              Sign in to your account to continue
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="login" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-6">
-                <TabsTrigger value="login" data-testid="login-tab">Login</TabsTrigger>
-                <TabsTrigger value="signup" data-testid="signup-tab">Sign Up</TabsTrigger>
-              </TabsList>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2 mb-4">
+              <Button
+                onClick={() => setUseMySQL(true)}
+                variant={useMySQL ? "default" : "outline"}
+                className="flex-1"
+              >
+                MySQL Login
+              </Button>
+              <Button
+                onClick={() => setUseMySQL(false)}
+                variant={!useMySQL ? "default" : "outline"}
+                className="flex-1"
+              >
+                Firebase Login
+              </Button>
+            </div>
 
-              <TabsContent value="login">
-                <form onSubmit={handleLogin} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="login-email">Email</Label>
-                    <Input
-                      id="login-email"
-                      data-testid="login-email-input"
-                      type="email"
-                      placeholder="you@example.com"
-                      value={loginData.email}
-                      onChange={(e) =>
-                        setLoginData({ ...loginData, email: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="login-password">Password</Label>
-                    <Input
-                      id="login-password"
-                      data-testid="login-password-input"
-                      type="password"
-                      placeholder="••••••••"
-                      value={loginData.password}
-                      onChange={(e) =>
-                        setLoginData({ ...loginData, password: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    data-testid="login-submit-button"
-                    className="w-full bg-gradient-to-r from-blue-500 to-green-500 hover:from-blue-600 hover:to-green-600"
-                    disabled={isLoading}
-                  >
-                    {isLoading ? "Logging in..." : "Log In"}
-                  </Button>
-                </form>
-              </TabsContent>
-
-              <TabsContent value="signup">
-                <form onSubmit={handleSignup} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-email">Email</Label>
-                    <Input
-                      id="signup-email"
-                      data-testid="signup-email-input"
-                      type="email"
-                      placeholder="you@example.com"
-                      value={signupData.email}
-                      onChange={(e) =>
-                        setSignupData({ ...signupData, email: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-business">Business Name</Label>
-                    <Input
-                      id="signup-business"
-                      data-testid="signup-business-input"
-                      type="text"
-                      placeholder="Your Business Name"
-                      value={signupData.businessName}
-                      onChange={(e) =>
-                        setSignupData({
-                          ...signupData,
-                          businessName: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-password">Password</Label>
-                    <Input
-                      id="signup-password"
-                      data-testid="signup-password-input"
-                      type="password"
-                      placeholder="••••••••"
-                      value={signupData.password}
-                      onChange={(e) =>
-                        setSignupData({
-                          ...signupData,
-                          password: e.target.value,
-                        })
-                      }
-                      required
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    data-testid="signup-submit-button"
-                    className="w-full bg-gradient-to-r from-blue-500 to-green-500 hover:from-blue-600 hover:to-green-600"
-                    disabled={isLoading}
-                  >
-                    {isLoading ? "Creating account..." : "Create Account"}
-                  </Button>
-                </form>
-              </TabsContent>
-            </Tabs>
+            {useMySQL ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username</Label>
+                  <Input
+                    id="username"
+                    type="text"
+                    placeholder="Enter username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleMySQLLogin()}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleMySQLLogin()}
+                  />
+                </div>
+                <Button
+                  onClick={handleMySQLLogin}
+                  data-testid="mysql-login-button"
+                  className="w-full bg-gradient-to-r from-blue-500 to-green-500 hover:from-blue-600 hover:to-green-600"
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Signing in..." : "Sign In"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  onClick={handleAnonymousLogin}
+                  data-testid="anonymous-login-button"
+                  className="w-full bg-gradient-to-r from-blue-500 to-green-500 hover:from-blue-600 hover:to-green-600"
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Signing in..." : "Sign In Anonymously"}
+                </Button>
+                <Button
+                  onClick={handleSkipLogin}
+                  data-testid="skip-login-button"
+                  className="w-full bg-gray-200 text-gray-700 hover:bg-gray-300"
+                >
+                  Skip Login (Dev Mode)
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
