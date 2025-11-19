@@ -145,6 +145,29 @@ class InvoiceItemModel(Base):
     bonus_quantity: Mapped[int] = mapped_column(Integer, default=0)
     returned_quantity: Mapped[int] = mapped_column(Integer, default=0)
 
+class MarketSupplyModel(Base):
+    __tablename__ = "market_supply"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    supply_number: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    supply_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    total_amount: Mapped[float] = mapped_column(Float)
+    total_quantity_pieces: Mapped[int] = mapped_column(Integer)
+    total_cartons: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class MarketSupplyItemModel(Base):
+    __tablename__ = "market_supply_items"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    supply_id: Mapped[str] = mapped_column(String(36), index=True)
+    product_id: Mapped[str] = mapped_column(String(36), index=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    return_quantity: Mapped[int] = mapped_column(Integer, default=0)
+    total_cartons: Mapped[float] = mapped_column(Float)
+
+
+
 # Initialize Firebase Admin (for token verification) - optional in development
 firebase_available = False
 try:
@@ -308,6 +331,30 @@ class SaleUpdateRequest(BaseModel):
     deliveryman_name: Optional[str] = None
     discount_percentage: Optional[float] = 0.0
     items: List[Dict[str, Any]]  # new items replacing old
+
+class MarketSupplyItem(BaseModel):
+    product_id: str
+    quantity: int
+    return_quantity: Optional[int] = 0
+    total_cartons: Optional[float] = 0.0
+
+class MarketSupply(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    supply_number: str
+    items: List[MarketSupplyItem]
+    total_amount: float
+    total_quantity_pieces: int
+    total_cartons: float
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    supply_timestamp: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+class MarketSupplyRequest(BaseModel):
+    items: List[Dict[str, Any]]  # [{product_id, quantity, return_quantity}]
+
 
 # Auth dependency
 async def get_current_user(authorization: str = Header(None)):
@@ -1061,6 +1108,99 @@ async def delete_sale(invoice_id: str, user_id: str = Depends(get_current_user))
             )
         
         return {"message": "Sale deleted successfully", "invoice_id": invoice_id}
+
+# Market Supply routes
+@api_router.post("/supply", response_model=MarketSupply)
+async def create_supply(supply_data: MarketSupplyRequest, user_id: str = Depends(get_current_user)):
+    async with SessionLocal() as session:
+        async with session.begin():
+            # Validate and prepare supply items
+            supply_items: List[MarketSupplyItem] = []
+            total_amount = 0.0
+            total_quantity_pieces = 0
+            total_cartons = 0.0
+
+            for item in supply_data.items:
+                result = await session.execute(
+                    select(ProductModel).where(ProductModel.id == item['product_id'], ProductModel.user_id == user_id)
+                )
+                product = result.scalar_one_or_none()
+                if not product:
+                    raise HTTPException(status_code=404, detail=f"Product {item['product_id']} not found")
+                
+                quantity = item.get('quantity', 0)
+                return_quantity = item.get('return_quantity', 0)
+                
+                if product.stock < quantity:
+                    raise HTTPException(status_code=400, detail=f"Insufficient stock for {product.name}. Available: {product.stock}, Required: {quantity}")
+
+                # TODO: This logic needs to be clarified
+                # total_cartons_item = item.get('total_cartons', 0.0)
+                
+                line_total = product.selling_price * quantity
+                
+                supply_items.append(MarketSupplyItem(
+                    product_id=product.id,
+                    quantity=quantity,
+                    return_quantity=return_quantity,
+                    # total_cartons=total_cartons_item
+                ))
+                total_amount += line_total
+                total_quantity_pieces += quantity
+                # total_cartons += total_cartons_item
+
+            # Generate supply number
+            result_count = await session.execute(select(func.count(MarketSupplyModel.id)).where(MarketSupplyModel.user_id == user_id))
+            supply_count = int(result_count.scalar_one())
+            supply_number = f"SUP-{supply_count + 1:05d}"
+
+            # Create supply
+            supply_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc)
+            
+            new_supply = MarketSupplyModel(
+                id=supply_id,
+                supply_number=supply_number,
+                user_id=user_id,
+                total_amount=total_amount,
+                total_quantity_pieces=total_quantity_pieces,
+                total_cartons=total_cartons,
+                created_at=now,
+                supply_timestamp=now
+            )
+            session.add(new_supply)
+
+            # Deduct stock and create items
+            for idx, item in enumerate(supply_data.items):
+                quantity = item.get('quantity', 0)
+                
+                await session.execute(
+                    update(ProductModel)
+                    .where(ProductModel.id == item['product_id'], ProductModel.user_id == user_id)
+                    .values(stock=ProductModel.stock - quantity, updated_at=now)
+                )
+                
+                it = supply_items[idx]
+                new_item = MarketSupplyItemModel(
+                    supply_id=supply_id,
+                    product_id=it.product_id,
+                    quantity=it.quantity,
+                    return_quantity=it.return_quantity,
+                    total_cartons=it.total_cartons
+                )
+                session.add(new_item)
+
+        return MarketSupply(
+            id=supply_id,
+            supply_number=supply_number,
+            user_id=user_id,
+            items=supply_items,
+            total_amount=total_amount,
+            total_quantity_pieces=total_quantity_pieces,
+            total_cartons=total_cartons,
+            created_at=now,
+            supply_timestamp=now
+        )
 
 # Dashboard stats
 @api_router.get("/dashboard/stats")

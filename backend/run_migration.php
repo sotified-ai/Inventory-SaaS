@@ -68,6 +68,18 @@ try {
         } else {
             echo "items_json column already dropped\n";
         }
+
+        // Add deleted_at column for soft deletes if it doesn't exist
+        $stmt = $pdo->prepare("SHOW COLUMNS FROM restock_transactions LIKE 'deleted_at'");
+        $stmt->execute();
+        $deletedAtExists = $stmt->fetch();
+        if (!$deletedAtExists) {
+            $stmt = $pdo->prepare("ALTER TABLE restock_transactions ADD COLUMN deleted_at datetime NULL DEFAULT NULL AFTER updated_at");
+            $stmt->execute();
+            echo "Added deleted_at column to restock_transactions table\n";
+        } else {
+            echo "deleted_at column already exists\n";
+        }
     }
     
     // Create restock_items table if it doesn't exist
@@ -98,6 +110,15 @@ try {
         echo "Created restock_items table\n";
     } else {
         echo "restock_items table already exists\n";
+    }
+
+    // Run market supply migration
+    $market_supply_migration_script = file_get_contents('market_supply_migration.sql');
+    if ($market_supply_migration_script) {
+        $pdo->exec($market_supply_migration_script);
+        echo "Executed market_supply_migration.sql\n";
+    } else {
+        echo "Could not read market_supply_migration.sql\n";
     }
     
     echo "Migration completed successfully!\n";

@@ -13,9 +13,9 @@ CREATE TABLE IF NOT EXISTS `auth_users` (
 
 -- Insert default admin user
 -- Username: admin
--- Password: admin (hashed using SHA256)
-INSERT IGNORE INTO `auth_users` (`username`, `password_hash`, `role`) 
-VALUES ('admin', '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918', 'admin');
+-- Password: admin123 (hashed using SHA256 via MySQL function)
+INSERT IGNORE INTO `auth_users` (`username`, `password_hash`, `role`)
+VALUES ('admin', SHA2('admin123', 256), 'admin');
 
 -- Verify the user was created
 SELECT * FROM `auth_users` WHERE `username` = 'admin';
