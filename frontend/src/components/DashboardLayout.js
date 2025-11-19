@@ -50,6 +50,7 @@ const DashboardLayout = ({ children }) => {
     { path: "/products", label: "Products", icon: Package, testId: "nav-products" },
     { path: "/new-sale", label: "New Sale", icon: ShoppingCart, testId: "nav-new-sale" },
     { path: "/sales-history", label: "Sales History", icon: Receipt, testId: "nav-sales-history" },
+    { path: "/market-supply", label: "Market Supply", icon: ShoppingCart, testId: "nav-market-supply" },
     { path: "/restock-transactions", label: "Restock", icon: Package, testId: "nav-restock" },
   ];
 
@@ -164,6 +165,11 @@ const DashboardLayout = ({ children }) => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>
+      
+      {/* Global Footer */}
+      <footer className="fixed bottom-0 w-full bg-gray-100 text-center py-2 print:hidden">
+        <p className="text-sm text-gray-600">Built by aspireXpress.com</p>
+      </footer>
     </div>
   );
 };

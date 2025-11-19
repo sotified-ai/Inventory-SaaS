@@ -1,19 +1,73 @@
 <?php
-// PRODUCTION UPDATE: Disable error reporting for production environments
-// Enable error reporting only during development/debugging
-// ini_set('display_errors', 1);
-// ini_set('display_startup_errors', 1);
-// error_reporting(E_ALL);
+header('X-Debug-Step: 1-Start'); // Immediately check if the script starts
+
+// Add debugging information
+header('X-Debug-Request-Method: ' . ($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'));
+header('X-Debug-Request-URI: ' . ($_SERVER['REQUEST_URI'] ?? 'UNKNOWN'));
+header('X-Debug-Path: ' . (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? 'UNKNOWN'));
+
+// Extension checks are deferred until after routing is determined so
+// that the login route can function without pdo_mysql/json if needed.
+
+// Environment config (no external config files) using process env with defaults
+$env = function($key, $default = null) {
+    $val = getenv($key);
+    return ($val === false || $val === '') ? $default : $val;
+};
+
+
+
+define('DB_NAME', $env('DB_NAME', 'realgiveaways_inventory'));
+define('DB_USER', $env('DB_USER', 'realgiveaways_inventory'));
+define('DB_PASS', $env('DB_PASSWORD', '!nv3T0rY'));
+define('DB_HOST', $env('DB_HOST', 'localhost'));
+define('DB_PORT', (int)$env('DB_PORT', 3306));
+define('DB_ENGINE', $env('DB_ENGINE', 'mysql'));
+define('APP_SECRET', $env('APP_SECRET', 'inventory-saas-secret-key-change-in-production'));
+define('CORS_ORIGINS', $env('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001'));
+
+header('X-Debug-Step: 2-Env-Loaded');
+
+// Set a global exception handler to ensure JSON output for all errors
+set_exception_handler(function($exception) {
+    // Ensure headers are set to JSON
+    if (!headers_sent()) {
+        header('Content-Type: application/json');
+        header('X-Debug-Exception: Yes');
+        header('X-Debug-Exception-Message: ' . $exception->getMessage());
+        header('X-Debug-Exception-File: ' . $exception->getFile());
+        header('X-Debug-Exception-Line: ' . $exception->getLine());
+    }
+    http_response_code(500);
+    
+    $errorDetails = [
+        'error' => 'An unexpected server error occurred.',
+        'message' => $exception->getMessage(),
+    ];
+
+    // Only show detailed error info in local environment
+    if (defined('CURRENT_ENVIRONMENT') && CURRENT_ENVIRONMENT === 'local') {
+        $errorDetails['file'] = $exception->getFile();
+        $errorDetails['line'] = $exception->getLine();
+        $errorDetails['trace'] = $exception->getTraceAsString();
+    }
+
+    echo safeJsonOutput($errorDetails);
+    exit();
+});
+
+
 
 // PRODUCTION UPDATE: Enhanced CORS with dynamic origin support
 // IMPORTANT: CORS headers MUST be set before Content-Type
 $origin = $_SERVER['HTTP_ORIGIN'] ?? null;
-// PRODUCTION UPDATE: Add your domain to allowed origins using environment variable
-$allowedOrigins = [
-    'https://realgiveaways.com', 
-    'http://realgiveaways.com'
-];
-if ($origin && in_array($origin, $allowedOrigins)) {
+// Use environment variable CORS_ORIGINS if present, otherwise defaults from config.php
+$corsEnv = getenv('CORS_ORIGINS') ?: (defined('CORS_ORIGINS') ? CORS_ORIGINS : 'https://realgiveaways.com,http://realgiveaways.com');
+$allowedOrigins = array_map('trim', explode(',', $corsEnv));
+// Always allow localhost dev origins for testing regardless of environment
+$allowedOrigins[] = 'http://localhost:3000';
+
+if ($origin && in_array($origin, $allowedOrigins, true)) {
     header("Access-Control-Allow-Origin: $origin");
     header('Access-Control-Allow-Credentials: true');
 } else {
@@ -21,7 +75,7 @@ if ($origin && in_array($origin, $allowedOrigins)) {
 }
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin');
-header('Access-Control-Expose-Headers: Content-Length, Content-Type');
+header('Access-Control-Expose-Headers: Content-Length, Content-Type, X-Debug-Step, X-Debug-Input-Raw'); // Expose debug header
 header('Access-Control-Max-Age: 86400');
 
 header('Content-Type: application/json');
@@ -32,34 +86,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-// Database Configuration
-// PRODUCTION UPDATE: Use environment variables for database credentials
-// Define default values that can be overridden by environment variables
-define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
-define('DB_NAME', getenv('DB_NAME') ?: 'realgiveaways_inventory');
-define('DB_USER', getenv('DB_USER') ?: 'realgiveaways_inventory');
-define('DB_PASS', getenv('DB_PASS') ?: '%x6!bSJXCc&O}0+p');
-// PRODUCTION UPDATE: Change APP_SECRET for production environments
-define('APP_SECRET', getenv('APP_SECRET') ?: 'inventory-saas-secret-key-change-in-production');
-
 // Database Connection
-function getDBConnection() {
+function getDBConnection($allowFail = false) {
+    header('X-Debug-Step: 3-Get-DB-Connection'); // Check if DB connection function is called
+    header('X-Debug-DB-Host: ' . DB_HOST);
+    header('X-Debug-DB-Name: ' . DB_NAME);
+    header('X-Debug-DB-User: ' . DB_USER);
+    header('X-Debug-DB-Pass: ' . DB_PASS); // This might expose sensitive information in logs
+    header('X-Debug-DB-Pass-Length: ' . strlen(DB_PASS));
+    
     try {
         $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+        header('X-Debug-DSN: ' . $dsn);
+        
         $pdo = new PDO($dsn, DB_USER, DB_PASS, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false
         ]);
+        header('X-Debug-Step: 3.1-PDO-Success'); // Check if PDO object is created
         return $pdo;
     } catch (PDOException $e) {
-        sendError(500, "Database connection failed: " . $e->getMessage());
+        if ($allowFail) {
+            // For login flow, allow fallback when DB connection fails
+            header('X-Debug-Step: 3.2-PDO-Failed-Allowed');
+            header('X-Debug-DB-Error: ' . $e->getMessage());
+            return null;
+        } else {
+            // Ensure this error is always JSON
+            if (!headers_sent()) {
+                header('Content-Type: application/json');
+            }
+            header('X-Debug-Step: 3.2-PDO-Failed'); // Check if PDO object is created
+            header('X-Debug-DB-Error: ' . $e->getMessage());
+            
+            http_response_code(500);
+            echo json_encode([
+                'error' => 'Database connection failed',
+                'message' => $e->getMessage(),
+                'debug_step' => '3.2-PDO-Failed'
+            ]);
+            exit();
+        }
     }
 }
 
+// Helper: check if soft-delete column exists on restock_transactions
+function hasSoftDelete($pdo) {
+    static $checked = false;
+    static $exists = false;
+    if ($checked) return $exists;
+    try {
+        $stmt = $pdo->prepare("SHOW COLUMNS FROM restock_transactions LIKE 'deleted_at'");
+        $stmt->execute();
+        $exists = $stmt->fetch() ? true : false;
+    } catch (Exception $e) {
+        $exists = false;
+    }
+    $checked = true;
+    return $exists;
+}
 // Authentication Helper
 function authenticateRequest() {
-    $headers = getallheaders();
+    $headers = getAllHeaders();
     $authHeader = $headers['Authorization'] ?? '';
     
     if (empty($authHeader)) {
@@ -72,6 +161,19 @@ function authenticateRequest() {
     
     $token = $matches[1];
     return verifyToken($token);
+}
+
+// Polyfill for getallheaders() function on Windows/IIS (guard against redeclaration)
+if (!function_exists('getAllHeaders')) {
+    function getAllHeaders() {
+        $headers = [];
+        foreach ($_SERVER as $name => $value) {
+            if (substr($name, 0, 5) == 'HTTP_') {
+                $headers[str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($name, 5)))))] = $value;
+            }
+        }
+        return $headers;
+    }
 }
 
 function verifyToken($token) {
@@ -129,15 +231,76 @@ function testPasswordHash($password) {
 }
 
 // Response Helpers
+function safeJsonOutput($data) {
+    if (function_exists('json_encode')) {
+        return json_encode($data);
+    }
+    // Minimal manual JSON for simple responses when json extension is missing
+    if (is_array($data)) {
+        $pairs = [];
+        foreach ($data as $k => $v) {
+            $key = addslashes((string)$k);
+            if (is_array($v)) {
+                $val = '""'; // Simplify nested structures
+            } else if (is_string($v)) {
+                $val = '"' . addslashes($v) . '"';
+            } else if (is_bool($v)) {
+                $val = $v ? 'true' : 'false';
+            } else if (is_null($v)) {
+                $val = 'null';
+            } else {
+                $val = (string)$v;
+            }
+            $pairs[] = '"' . $key . '":' . $val;
+        }
+        return '{' . implode(',', $pairs) . '}';
+    }
+    return '"' . addslashes((string)$data) . '"';
+}
+
+// Safe JSON decode that works without the json extension for simple objects
+function safeJsonDecode($raw) {
+    if (function_exists('json_decode')) {
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+    $result = [];
+    if (!is_string($raw) || $raw === '') return $result;
+    // Very simple parser for flat JSON objects: {"key":"value", "n":123, "b":true}
+    if (preg_match_all('/"([^"\\]+)"\s*:\s*("((?:\\.|[^"\\])*)"|true|false|null|-?\d+(?:\.\d+)?)/i', $raw, $matches, PREG_SET_ORDER)) {
+        foreach ($matches as $m) {
+            $key = $m[1];
+            $val = $m[2];
+            if ($val[0] === '"') {
+                // Unescape common sequences
+                $str = stripcslashes($m[3]);
+                $result[$key] = $str;
+            } else {
+                $lv = strtolower($val);
+                if ($lv === 'true' || $lv === 'false') {
+                    $result[$key] = ($lv === 'true');
+                } else if ($lv === 'null') {
+                    $result[$key] = null;
+                } else {
+                    $result[$key] = (strpos($val, '.') !== false) ? floatval($val) : intval($val);
+                }
+            }
+        }
+    }
+    return $result;
+}
+
 function sendSuccess($data = null, $code = 200) {
     http_response_code($code);
-    echo json_encode($data);
+    if (!headers_sent()) header('Content-Type: application/json');
+    echo safeJsonOutput($data);
     exit();
 }
 
 function sendError($code, $message) {
     http_response_code($code);
-    echo json_encode(['detail' => $message]);
+    if (!headers_sent()) header('Content-Type: application/json');
+    echo safeJsonOutput(['detail' => $message]);
     exit();
 }
 
@@ -156,15 +319,46 @@ $requestMethod = $_SERVER['REQUEST_METHOD'];
 $requestUri = $_SERVER['REQUEST_URI'];
 $path = parse_url($requestUri, PHP_URL_PATH);
 
-// Parse input
-$input = json_decode(file_get_contents('php://input'), true) ?? [];
+// Add debugging for route matching
+header('X-Debug-Route-Method: ' . $requestMethod);
+header('X-Debug-Route-Path: ' . $path);
+
+// Parse input safely without requiring json extension
+$rawInput = file_get_contents('php://input');
+$input = safeJsonDecode($rawInput);
+// Add debugging for input (raw only to avoid json dependency in headers)
+header('X-Debug-Input-Raw: ' . substr($rawInput ?: '', 0, 200));
 
 // Route handling
-if ($requestMethod === 'POST' && (preg_match('#/api/login$#', $path) || strpos($path, '/auth/login') !== false || preg_match('#^/login$#', $path) || preg_match('#/api\.php/login$#', $path))) {
+$loginPatternMatch = preg_match('#/api/login$#', $path) || 
+                     strpos($path, '/auth/login') !== false || 
+                     preg_match('#^/login$#', $path) || 
+                     preg_match('#/api\.php/login$#', $path) || 
+                     preg_match('#/api\.php/api/login$#', $path);
+
+// Add specific check for the exact path in your curl request
+$exactPathMatch = $path === '/api.php/api/login';
+header('X-Debug-Exact-Path-Match: ' . ($exactPathMatch ? 'YES' : 'NO'));
+
+header('X-Debug-Login-Pattern-Match: ' . ($loginPatternMatch ? 'YES' : 'NO'));
+
+// Defer extension checks: require pdo_mysql for non-login routes only
+$isLoginRoute = ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch));
+if (!$isLoginRoute && $_SERVER['REQUEST_METHOD'] !== 'OPTIONS') {
+    if (!extension_loaded('pdo_mysql')) {
+        sendError(500, 'Server configuration error: pdo_mysql extension not loaded.');
+    }
+    // Do not hard-require json; safeJsonOutput covers missing extension
+}
+
+if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
+    header('X-Debug-Route-Login: YES');
     handleLogin($input);
 } elseif ($requestMethod === 'POST' && strpos($path, '/auth/register') !== false) {
+    header('X-Debug-Route-Register: YES');
     handleRegister($input);
 } else {
+    header('X-Debug-Route-Other: YES');
     // All other routes require authentication
     $username = authenticateRequest();
     $userId = "mysql-$username";
@@ -220,45 +414,192 @@ if ($requestMethod === 'POST' && (preg_match('#/api/login$#', $path) || strpos($
     } elseif (preg_match('#/api\.php/api/restock/transactions/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/restock/transactions/([a-f0-9\-]+)$#', $path, $matches)) {
         $restockId = $matches[1];
         if ($requestMethod === 'GET') handleGetRestockTransaction($userId, $restockId);
+        if ($requestMethod === 'PUT') handleUpdateRestock($userId, $restockId, $input);
+        if ($requestMethod === 'DELETE') handleDeleteRestock($userId, $restockId);
     } elseif (preg_match('#/api\.php/api/reports/combined_restock$#', $path) || preg_match('#/api/reports/combined_restock$#', $path)) {
         if ($requestMethod === 'GET') handleGetCombinedRestockReport($userId, $_GET);
+    }
+    // Market Supply
+    elseif (preg_match('#/api\.php/api/supply$#', $path) || preg_match('#/api/supply$#', $path)) {
+        if ($requestMethod === 'POST') handleCreateSupply($userId, $input);
     } else {
         sendError(404, "Endpoint not found");
+    }
+}
+
+// ==================== MARKET SUPPLY ====================
+
+function parsePackingUnitPieces($packingUnit) {
+    if (!$packingUnit) return null;
+    if (preg_match('/\((\d+)\s*pcs?\)/i', $packingUnit, $m)) {
+        return (int)$m[1];
+    }
+    if (preg_match('/\((\d+)\)/', $packingUnit, $m)) {
+        return (int)$m[1];
+    }
+    if (preg_match('/(\d+)/', $packingUnit, $m)) {
+        return (int)$m[1];
+    }
+    return null;
+}
+
+function handleCreateSupply($userId, $input) {
+    $pdo = getDBConnection();
+    
+    try {
+        $pdo->beginTransaction();
+        
+        $supplyId = generateUUID();
+        $supplyNumber = 'SUPPLY-' . time() . '-' . substr($supplyId, 0, 8);
+        
+        $items = $input['items'] ?? [];
+        
+        if (empty($items)) {
+            throw new Exception("No items provided for supply");
+        }
+        
+        $totalAmount = 0;
+        $totalQuantityPieces = 0;
+        $totalCartons = 0;
+        
+        // Process each item in the supply
+        foreach ($items as $item) {
+            $productId = $item['product_id'];
+            $quantity = $item['quantity'];
+            
+            if ($quantity <= 0) {
+                throw new Exception("Quantity must be greater than 0");
+            }
+            
+            // Check stock and get packing unit
+            $stmt = $pdo->prepare("SELECT stock, selling_price, packing_unit FROM products WHERE id = ? AND user_id = ?");
+            $stmt->execute([$productId, $userId]);
+            $product = $stmt->fetch();
+            
+            if (!$product || $product['stock'] < $quantity) {
+                throw new Exception("Insufficient stock for product $productId");
+            }
+            
+            // Deduct stock
+            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
+            $stmt->execute([$quantity, $productId]);
+
+            $itemValue = $product['selling_price'] * $quantity;
+            $totalAmount += $itemValue;
+            $totalQuantityPieces += $quantity;
+
+            // Calculate cartons (CTNS) based on packing unit pieces
+            $piecesPerCarton = parsePackingUnitPieces($product['packing_unit'] ?? '');
+            if ($piecesPerCarton && $piecesPerCarton > 0) {
+                $totalCartons += ($quantity / $piecesPerCarton);
+            }
+        }
+        
+        // Insert supply transaction header
+        $stmt = $pdo->prepare("
+            INSERT INTO market_supply 
+            (id, user_id, supply_number, supply_timestamp, total_amount, total_quantity_pieces, total_cartons)
+            VALUES (?, ?, ?, NOW(), ?, ?, ?)
+        ");
+        
+        $stmt->execute([
+            $supplyId,
+            $userId,
+            $supplyNumber,
+            $totalAmount,
+            $totalQuantityPieces,
+            $totalCartons
+        ]);
+        
+        // Insert supply items (detail records)
+        foreach ($items as $item) {
+            $itemId = generateUUID();
+            $productId = $item['product_id'];
+            $quantity = $item['quantity'];
+            $return_quantity = $item['return_quantity'] ?? 0;
+            // Compute cartons per item based on product packing unit
+            $stmt = $pdo->prepare("SELECT packing_unit FROM products WHERE id = ? AND user_id = ?");
+            $stmt->execute([$productId, $userId]);
+            $prod = $stmt->fetch();
+            $ppu = parsePackingUnitPieces($prod['packing_unit'] ?? '');
+            $total_cartons = ($ppu && $ppu > 0) ? ($quantity / $ppu) : 0.0;
+            
+            // Insert supply item detail
+            $stmt = $pdo->prepare("
+                INSERT INTO market_supply_items 
+                (id, supply_id, product_id, quantity, return_quantity, total_cartons)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ");
+            
+            $stmt->execute([
+                $itemId,
+                $supplyId,
+                $productId,
+                $quantity,
+                $return_quantity,
+                $total_cartons
+            ]);
+        }
+        
+        $pdo->commit();
+        
+        // Return created supply transaction with items
+        $stmt = $pdo->prepare("SELECT * FROM market_supply WHERE id = ?");
+        $stmt->execute([$supplyId]);
+        $supply = $stmt->fetch();
+        
+        $stmt = $pdo->prepare("SELECT * FROM market_supply_items WHERE supply_id = ?");
+        $stmt->execute([$supplyId]);
+        $supply['items'] = $stmt->fetchAll();
+        
+        sendSuccess($supply, 201);
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        sendError(400, $e->getMessage());
     }
 }
 
 // ==================== AUTHENTICATION ====================
 
 function handleLogin($input) {
-    $pdo = getDBConnection();
-    $username = $input['username'] ?? '';
+    header('X-Debug-Handle-Login: Start');
+    $username = trim($input['username'] ?? '');
     $password = $input['password'] ?? '';
-    
-    if (empty($username) || empty($password)) {
+
+    header('X-Debug-Login-Input-Username: ' . $username);
+    header('X-Debug-Login-Input-Password: ' . (empty($password) ? 'EMPTY' : 'PRESENT'));
+
+    if ($username === '' || $password === '') {
         sendError(400, "Username and password required");
     }
-    
-    $stmt = $pdo->prepare("SELECT * FROM auth_users WHERE username = ?");
-    $stmt->execute([$username]);
-    $user = $stmt->fetch();
-    
-    // Debug: Log if user was found
-    if (!$user) {
-        sendError(401, "User not found: " . $username);
+
+    // DB-backed authentication (aligns with server.py)
+    $pdo = getDBConnection();
+    try {
+        $stmt = $pdo->prepare("SELECT id, username, password_hash, role, created_at FROM auth_users WHERE username = ?");
+        $stmt->execute([$username]);
+        $user = $stmt->fetch();
+
+        if (!$user) {
+            sendError(401, "Invalid credentials");
+        }
+
+        if (!verifyUserPassword($password, $user['password_hash'])) {
+            sendError(401, "Invalid credentials");
+        }
+
+        $token = generateToken($username);
+        sendSuccess([
+            'token' => $token,
+            'username' => $username,
+            'access_token' => $token,
+            'token_type' => 'bearer',
+            'user_id' => "mysql-" . $username
+        ]);
+    } catch (Exception $e) {
+        sendError(500, "Login failed: " . $e->getMessage());
     }
-    
-    if (!verifyUserPassword($password, $user['password_hash'])) {
-        sendError(401, "Invalid password for user: " . $username);
-    }
-    
-    $token = generateToken($username);
-    sendSuccess([
-        'token' => $token,
-        'username' => $username,
-        'access_token' => $token,
-        'token_type' => 'bearer',
-        'user_id' => "mysql-$username"
-    ]);
 }
 
 function handleRegister($input) {
@@ -436,6 +777,11 @@ function handleDeleteCategory($userId, $categoryId) {
 function handleCreateSale($userId, $input) {
     $pdo = getDBConnection();
     
+    // Validate customer name is present
+    if (empty($input['customer_name'])) {
+        sendError(400, "Customer name is required");
+    }
+    
     try {
         $pdo->beginTransaction();
         
@@ -476,7 +822,7 @@ function handleCreateSale($userId, $input) {
             $invoiceId,
             $invoiceNumber,
             $userId,
-            $input['customer_name'] ?? null,
+            $input['customer_name'],
             $input['customer_phone'] ?? null,
             $input['customer_address'] ?? null,
             $input['deliveryman_name'] ?? null,
@@ -534,6 +880,11 @@ function handleCreateSale($userId, $input) {
 
 function handleUpdateSale($userId, $invoiceId, $input) {
     $pdo = getDBConnection();
+    
+    // Validate customer name is present
+    if (empty($input['customer_name'])) {
+        sendError(400, "Customer name is required");
+    }
     
     try {
         $pdo->beginTransaction();
@@ -666,14 +1017,43 @@ function handleSalesHistory($userId, $params) {
     $query = "SELECT * FROM invoices WHERE user_id = ? AND is_deleted = 0";
     $queryParams = [$userId];
     
+    // Handle date filtering with timezone conversion
     if (!empty($params['from_date'])) {
-        $query .= " AND sale_timestamp >= ?";
-        $queryParams[] = $params['from_date'];
+        try {
+            // Convert ISO string to DateTime and set to Asia/Karachi timezone
+            $fromDate = new DateTime($params['from_date']);
+            $fromDate->setTimezone(new DateTimeZone('Asia/Karachi'));
+            // Set to start of day in PKT
+            $fromDate->setTime(0, 0, 0);
+            // Convert back to UTC for database query
+            $fromDate->setTimezone(new DateTimeZone('UTC'));
+            $fromDateString = $fromDate->format('Y-m-d H:i:s');
+            
+            $query .= " AND sale_timestamp >= ?";
+            $queryParams[] = $fromDateString;
+        } catch (Exception $e) {
+            // If date parsing fails, log the error but continue without date filter
+            error_log("Date parsing error for from_date: " . $e->getMessage());
+        }
     }
     
     if (!empty($params['to_date'])) {
-        $query .= " AND sale_timestamp <= ?";
-        $queryParams[] = $params['to_date'];
+        try {
+            // Convert ISO string to DateTime and set to Asia/Karachi timezone
+            $toDate = new DateTime($params['to_date']);
+            $toDate->setTimezone(new DateTimeZone('Asia/Karachi'));
+            // Set to end of day in PKT
+            $toDate->setTime(23, 59, 59);
+            // Convert back to UTC for database query
+            $toDate->setTimezone(new DateTimeZone('UTC'));
+            $toDateString = $toDate->format('Y-m-d H:i:s');
+            
+            $query .= " AND sale_timestamp <= ?";
+            $queryParams[] = $toDateString;
+        } catch (Exception $e) {
+            // If date parsing fails, log the error but continue without date filter
+            error_log("Date parsing error for to_date: " . $e->getMessage());
+        }
     }
     
     $query .= " ORDER BY sale_timestamp DESC";
@@ -709,25 +1089,26 @@ function handleDashboardStats($userId) {
     $stmt->execute([$userId]);
     $totalSales = $stmt->fetch()['total'];
     
-    $stmt = $pdo->prepare("SELECT SUM(final_total_amount) as revenue FROM invoices WHERE user_id = ? AND is_deleted = 0");
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_total_amount), 0) as revenue FROM invoices WHERE user_id = ? AND is_deleted = 0");
     $stmt->execute([$userId]);
     $revenue = $stmt->fetch()['revenue'] ?? 0;
     
-    $stmt = $pdo->prepare("SELECT SUM(final_discount_amount) as discount FROM invoices WHERE user_id = ? AND is_deleted = 0");
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_discount_amount), 0) as discount FROM invoices WHERE user_id = ? AND is_deleted = 0");
     $stmt->execute([$userId]);
     $totalDiscount = $stmt->fetch()['discount'] ?? 0;
     
     // Calculate Net Profit (Revenue - COGS)
     // COGS = SUM(quantity * cost_price) for all sold items
     $stmt = $pdo->prepare("
-        SELECT SUM(ii.quantity * p.cost_price) as cogs
+        SELECT COALESCE(SUM(ii.quantity * IFNULL(p.cost_price, 0)), 0) as cogs
         FROM invoice_items ii
         JOIN invoices i ON ii.invoice_id = i.id
         JOIN products p ON ii.product_id = p.id
         WHERE i.user_id = ? AND i.is_deleted = 0
     ");
     $stmt->execute([$userId]);
-    $cogs = $stmt->fetch()['cogs'] ?? 0;
+    $cogsResult = $stmt->fetch();
+    $cogs = $cogsResult['cogs'] ?? 0;
     
     $netProfit = $revenue - $cogs;
     
@@ -872,8 +1253,14 @@ function handleCreateRestock($userId, $input) {
     try {
         $pdo->beginTransaction();
         
-        $restockId = generateUUID();
-        $restockNumber = 'RESTOCK-' . time() . '-' . substr($restockId, 0, 8);
+        // Generate a unique restock number
+        do {
+            $restockId = generateUUID();
+            $restockNumber = 'RESTOCK-' . time() . '-' . substr($restockId, 0, 8);
+            $stmt = $pdo->prepare("SELECT id FROM restock_transactions WHERE restock_number = ?");
+            $stmt->execute([$restockNumber]);
+            $exists = $stmt->fetch();
+        } while ($exists);
         
         $bookerName = $input['booker_name'] ?? null;
         $deliverymanName = $input['deliveryman_name'] ?? null;
@@ -992,10 +1379,10 @@ function handleCreateRestock($userId, $input) {
                        'total_cost', ri.total_cost
                      )
                    ) as items
-            FROM restock_transactions rt
-            LEFT JOIN restock_items ri ON rt.id = ri.restock_id
-            WHERE rt.id = ?
-            GROUP BY rt.id
+        FROM restock_transactions rt
+        LEFT JOIN restock_items ri ON rt.id = ri.restock_id
+        WHERE rt.id = ?
+        GROUP BY rt.id
         ");
         $stmt->execute([$restockId]);
         $restock = $stmt->fetch();
@@ -1078,6 +1465,147 @@ function handleGetRestockTransaction($userId, $restockId) {
     sendSuccess($restock);
 }
 
+function handleUpdateRestock($userId, $restockId, $input) {
+    $pdo = getDBConnection();
+    
+    try {
+        $pdo->beginTransaction();
+        
+        // Get original restock items
+        $stmt = $pdo->prepare("SELECT * FROM restock_items WHERE restock_id = ?");
+        $stmt->execute([$restockId]);
+        $originalItems = $stmt->fetchAll();
+        
+        // Reverse original stock additions
+        foreach ($originalItems as $item) {
+            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
+            $stmt->execute([$item['quantity'], $item['product_id']]);
+        }
+        
+        // Delete old items
+        $stmt = $pdo->prepare("DELETE FROM restock_items WHERE restock_id = ?");
+        $stmt->execute([$restockId]);
+        
+        $totalRestockValue = 0;
+        $totalItemsRestocked = 0;
+        
+        // Process each item in the restock
+        foreach ($input['items'] as $item) {
+            $productId = $item['product_id'];
+            $quantity = $item['quantity'];
+            $costPerUnit = $item['cost_per_unit'] ?? 0;
+            
+            if ($quantity <= 0) {
+                throw new Exception("Quantity must be greater than 0");
+            }
+            
+            // Get current product info
+            $stmt = $pdo->prepare("SELECT name, packing_unit FROM products WHERE id = ? AND user_id = ?");
+            $stmt->execute([$productId, $userId]);
+            $product = $stmt->fetch();
+            
+            if (!$product) {
+                throw new Exception("Product not found: $productId");
+            }
+            
+            // Calculate item value
+            $itemValue = $costPerUnit * $quantity;
+            $totalRestockValue += $itemValue;
+            $totalItemsRestocked += $quantity;
+            
+            // Store product details for the restock item
+            $itemName = $product['name'];
+            $packingUnit = $product['packing_unit'] ?? null;
+
+            // Insert restock item detail
+            $stmt = $pdo->prepare("
+                INSERT INTO restock_items 
+                (id, restock_id, product_id, product_name, packing_unit, quantity, cost_per_unit, total_cost)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            
+            $stmt->execute([
+                generateUUID(),
+                $restockId,
+                $productId,
+                $itemName,
+                $packingUnit,
+                $quantity,
+                $costPerUnit,
+                $itemValue
+            ]);
+
+            // Add new stock
+            $stmt = $pdo->prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
+            $stmt->execute([$quantity, $productId]);
+        }
+        
+        // Update restock transaction header
+        $stmt = $pdo->prepare("
+            UPDATE restock_transactions 
+            SET total_restock_value = ?, total_items_restocked = ?, booker_name = ?, deliveryman_name = ?, updated_at = NOW()
+            WHERE id = ? AND user_id = ?
+        ");
+        
+        $stmt->execute([
+            $totalRestockValue,
+            $totalItemsRestocked,
+            $input['booker_name'],
+            $input['deliveryman_name'],
+            $restockId,
+            $userId
+        ]);
+        
+        $pdo->commit();
+        sendSuccess(['message' => 'Restock updated']);
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        sendError(400, $e->getMessage());
+    }
+}
+
+function handleDeleteRestock($userId, $restockId) {
+    $pdo = getDBConnection();
+    
+    try {
+        $pdo->beginTransaction();
+        // Ensure soft-delete column exists (in case migration hasn't been run)
+        try {
+            $stmt = $pdo->prepare("SHOW COLUMNS FROM restock_transactions LIKE 'deleted_at'");
+            $stmt->execute();
+            $col = $stmt->fetch();
+            if (!$col) {
+                $pdo->exec("ALTER TABLE restock_transactions ADD COLUMN deleted_at datetime NULL DEFAULT NULL AFTER updated_at");
+            }
+        } catch (Exception $e) {
+            // Proceed even if we cannot add the column; deletion request will fail gracefully
+        }
+        
+        // Get restock items
+        $stmt = $pdo->prepare("SELECT * FROM restock_items WHERE restock_id = ?");
+        $stmt->execute([$restockId]);
+        $items = $stmt->fetchAll();
+        
+        // Restore stock
+        foreach ($items as $item) {
+            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
+            $stmt->execute([$item['quantity'], $item['product_id']]);
+        }
+        
+        // Soft-delete the restock transaction record
+        $stmt = $pdo->prepare("UPDATE restock_transactions SET deleted_at = NOW() WHERE id = ? AND user_id = ?");
+        $stmt->execute([$restockId, $userId]);
+        
+        $pdo->commit();
+        sendSuccess(['message' => 'Restock deleted']);
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        sendError(400, $e->getMessage());
+    }
+}
+
 // New function for combined restock reporting
 function handleGetCombinedRestockReport($userId, $params) {
     $pdo = getDBConnection();
@@ -1149,6 +1677,7 @@ function handleGetCombinedRestockReport($userId, $params) {
         WHERE rt.user_id = ? 
         AND rt.restock_timestamp >= ? 
         AND rt.restock_timestamp <= ?
+        
         GROUP BY ri.product_name, ri.packing_unit
         ORDER BY total_quantity DESC
     ";

@@ -1,12 +1,48 @@
-// Prefer explicit backend URL, then API base, and finally local default.
-// Remove remote fallback to avoid accidental calls to external PHP endpoints.
-const API_BASE = (
-  process.env.REACT_APP_API_BASE ||
-  (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : `https://realgiveaways.com/api.php/api`)
-);
+// Prefer same-origin when hosted on realgiveaways.com, else env-driven or remote default.
+function resolveApiBase() {
+  try {
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin || '';
+      const host = window.location.hostname || '';
+      // If served from realgiveaways.com, use same-origin relative path to avoid CORS
+      if (host.includes('realgiveaways.com')) {
+        return '/api.php/api';
+      }
+      // Local development: point to local PHP server if running , if not works remve this 
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return 'http://localhost:8000/api.php/api';
+      }
+    }
+  } catch (_) {}
+  // Fallbacks: explicit env, backend URL, or remote PHP
+  const base = (
+    process.env.REACT_APP_API_BASE ||
+    (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : `https://realgiveaways.com/api.php/api`)
+  );
+  return base;
+}
 
-// Ensure API_BASE ends with /api for proper routing
+const API_BASE = resolveApiBase();
 const BASE_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`;
+
+// Safely parse responses by cloning immediately and consuming the clone once.
+const parseResponseJSON = async (response, context = '') => {
+  const appResponse = response.clone();
+  if (!appResponse.ok) {
+    try {
+      const errorText = await appResponse.text();
+      throw new Error(context ? `${context}: ${errorText}` : errorText);
+    } catch (e) {
+      throw new Error(context ? `${context}: HTTP ${appResponse.status}` : `HTTP ${appResponse.status}`);
+    }
+  }
+  const text = await appResponse.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { detail: text };
+  }
+};
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem("mysql-token");
@@ -25,12 +61,7 @@ export const productsAPI = {
     const response = await fetch(`${BASE_URL}/products`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch products: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch products');
   },
 
   create: async (productData) => {
@@ -46,16 +77,9 @@ export const productsAPI = {
         body: JSON.stringify(productData),
       });
       
-      const responseClone = response.clone();
       console.log('Response status:', response.status);
       
-      if (!response.ok) {
-        const errorText = await responseClone.text();
-        console.error('Error response:', errorText);
-        throw new Error(`Failed to create product: ${response.status} ${errorText}`);
-      }
-      
-      const result = await response.json();
+      const result = await parseResponseJSON(response, 'Failed to create product');
       console.log('Product created:', result);
       return result;
     } catch (error) {
@@ -70,12 +94,7 @@ export const productsAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify(productData),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to update product: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to update product');
   },
 
   delete: async (productId) => {
@@ -83,12 +102,7 @@ export const productsAPI = {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to delete product: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to delete product');
   },
 
   restock: async (productId, quantity) => {
@@ -97,53 +111,35 @@ export const productsAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ product_id: productId, quantity }),
     });
-    if (!response.ok) throw new Error("Failed to restock product");
-    return response.json();
+    return parseResponseJSON(response, 'Failed to restock product');
   },
 };
 
 // Sales API
 export const salesAPI = {
-  create: async (saleData) => {
-    const response = await fetch(`${BASE_URL}/sales`, {
-      method: "POST",
+  create: async (data) => {
+    const response = await fetch(`${API_BASE}/sales`, {
+      method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify(saleData),
+      body: JSON.stringify(data),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      let errorMessage = "Failed to create sale";
-      try {
-        const error = JSON.parse(errorText);
-        errorMessage = error.detail || errorMessage;
-      } catch (e) {
-        errorMessage = errorText || errorMessage;
-      }
-      throw new Error(errorMessage);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to create sale');
   },
-
-  update: async (invoiceId, saleData) => {
-    const response = await fetch(`${BASE_URL}/sales/${invoiceId}`, {
-      method: "PUT",
+  createSupply: async (data) => {
+    const response = await fetch(`${API_BASE}/supply`, {
+      method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify(saleData),
+      body: JSON.stringify(data),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      let errorMessage = "Failed to update sale";
-      try {
-        const error = JSON.parse(errorText);
-        errorMessage = error.detail || errorMessage;
-      } catch (e) {
-        errorMessage = errorText || errorMessage;
-      }
-      throw new Error(errorMessage);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to create supply sheet');
+  },
+  update: async (id, data) => {
+    const response = await fetch(`${API_BASE}/sales/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return parseResponseJSON(response, 'Failed to update sale');
   },
 
   delete: async (invoiceId) => {
@@ -151,12 +147,7 @@ export const salesAPI = {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to delete sale: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to delete sale');
   },
 
   getHistory: async (fromDate, toDate) => {
@@ -169,12 +160,7 @@ export const salesAPI = {
     const response = await fetch(url, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch sales history: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch sales history');
   },
 };
 
@@ -184,24 +170,14 @@ export const invoicesAPI = {
     const response = await fetch(`${BASE_URL}/invoices`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch invoices: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch invoices');
   },
 
   getById: async (invoiceId) => {
     const response = await fetch(`${BASE_URL}/invoices/${invoiceId}`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch invoice: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch invoice');
   },
 };
 
@@ -211,36 +187,21 @@ export const dashboardAPI = {
     const response = await fetch(`${BASE_URL}/dashboard/stats`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch dashboard stats: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch dashboard stats');
   },
 
   getSummary: async () => {
     const response = await fetch(`${BASE_URL}/reports/dashboard_summary`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch dashboard summary: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch dashboard summary');
   },
 
   getItemizedSales: async (range = 'today') => {
     const response = await fetch(`${BASE_URL}/reports/itemized_sales_summary?range=${range}`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch itemized sales: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch itemized sales');
   },
 };
 
@@ -250,12 +211,7 @@ export const categoriesAPI = {
     const response = await fetch(`${BASE_URL}/categories`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch categories: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch categories');
   },
 
   create: async (categoryData) => {
@@ -264,19 +220,7 @@ export const categoriesAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify(categoryData),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      let errorMessage = "Failed to create category";
-      try {
-        const error = JSON.parse(errorText);
-        errorMessage = error.detail || errorMessage;
-      } catch (e) {
-        errorMessage = errorText || errorMessage;
-      }
-      throw new Error(errorMessage);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to create category');
   },
 
   update: async (categoryId, categoryData) => {
@@ -285,19 +229,7 @@ export const categoriesAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify(categoryData),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      let errorMessage = "Failed to update category";
-      try {
-        const error = JSON.parse(errorText);
-        errorMessage = error.detail || errorMessage;
-      } catch (e) {
-        errorMessage = errorText || errorMessage;
-      }
-      throw new Error(errorMessage);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to update category');
   },
 
   delete: async (categoryId) => {
@@ -305,19 +237,7 @@ export const categoriesAPI = {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      let errorMessage = "Failed to delete category";
-      try {
-        const error = JSON.parse(errorText);
-        errorMessage = error.detail || errorMessage;
-      } catch (e) {
-        errorMessage = errorText || errorMessage;
-      }
-      throw new Error(errorMessage);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to delete category');
   },
 };
 
@@ -329,36 +249,38 @@ export const restockAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify(restockData),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to create restock: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to create restock');
+  },
+
+  update: async (restockId, restockData) => {
+    const response = await fetch(`${BASE_URL}/restock/transactions/${restockId}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(restockData),
+    });
+    return parseResponseJSON(response, 'Failed to update restock');
+  },
+
+  delete: async (restockId) => {
+    const response = await fetch(`${BASE_URL}/restock/transactions/${restockId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to delete restock');
   },
 
   getAll: async () => {
     const response = await fetch(`${BASE_URL}/restock/transactions`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch restock transactions: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch restock transactions');
   },
 
   getById: async (restockId) => {
     const response = await fetch(`${BASE_URL}/restock/transactions/${restockId}`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch restock transaction: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch restock transaction');
   },
 
   getCombinedReport: async (params = {}) => {
@@ -366,12 +288,7 @@ export const restockAPI = {
     const response = await fetch(`${BASE_URL}/reports/combined_restock?${urlParams.toString()}`, {
       headers: getAuthHeaders(),
     });
-    const responseClone = response.clone();
-    if (!response.ok) {
-      const errorText = await responseClone.text();
-      throw new Error(`Failed to fetch combined restock report: ${errorText}`);
-    }
-    return response.json();
+    return parseResponseJSON(response, 'Failed to fetch combined restock report');
   },
 };
 
