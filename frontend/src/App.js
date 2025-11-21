@@ -9,6 +9,7 @@ import Products from "@/pages/Products";
 import NewSale from "@/pages/NewSale";
 import SalesHistory from "@/pages/SalesHistory";
 import MarketSupply from "@/pages/MarketSupply";
+import MarketSupplyHistory from "@/pages/MarketSupplyHistory";
 import RestockSlip from "@/pages/RestockSlip";
 import RestockTransactions from "@/pages/RestockTransactions";
 import { Toaster } from "@/components/ui/sonner";
@@ -108,6 +109,18 @@ function App() {
               user || skipLogin ? (
                 <DashboardLayout>
                   <MarketSupply />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
+            path="/supply-history"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <MarketSupplyHistory />
                 </DashboardLayout>
               ) : (
                 <Navigate to="/auth" />

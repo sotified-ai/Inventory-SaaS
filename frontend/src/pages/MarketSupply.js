@@ -42,6 +42,7 @@ const MarketSupply = () => {
   const fetchProducts = async () => {
     try {
       const data = await productsAPI.getAll();
+      console.log(data)
       setProducts(data);
     } catch (error) {
       console.error("Failed to fetch products:", error);
@@ -251,7 +252,7 @@ const MarketSupply = () => {
           <CardHeader>
             <CardTitle>{SYSTEM_NAME}</CardTitle>
             <CardDescription>Market Supply Sheet - {supplySheet.supply_number}</CardDescription>
-            <CardDescription>Date: {new Date(supplySheet.supply_timestamp).toLocaleDateString()}</CardDescription>
+            <CardDescription>Date: {new Date(supplySheet.created_at).toLocaleDateString()}</CardDescription>
           </CardHeader>
           <CardContent>
             <table className="w-full">
@@ -271,16 +272,15 @@ const MarketSupply = () => {
                       <td>{product ? product.name : 'Unknown Product'}</td>
                       <td>{item.quantity}</td>
                       <td>{item.return_quantity}</td>
-                      <td>{parseFloat(item.total_cartons).toFixed(2)}</td>
+                      <td>{parseFloat(item.ctns).toFixed(2)}</td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
             <div className="mt-4 text-right">
-              <p><strong>Total Amount:</strong> PKR {parseFloat(supplySheet.total_amount).toFixed(2)}</p>
-              <p><strong>Total Quantity:</strong> {supplySheet.total_quantity_pieces} pieces</p>
-              <p><strong>Total CTNS:</strong> {parseFloat(supplySheet.total_cartons).toFixed(2)}</p>
+              <p><strong>Total Quantity:</strong> {supplySheet.total_quantity} pieces</p>
+              <p><strong>Total CTNS:</strong> {parseFloat(supplySheet.total_ctns).toFixed(2)}</p>
             </div>
           </CardContent>
         </Card>

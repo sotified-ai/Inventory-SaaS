@@ -19,8 +19,15 @@ export const testResponseHandling = async () => {
     console.log('Response headers:', [...response.headers.entries()]);
     
     // Check if response is ok
-    // Clone before any body reads to keep original untouched for instrumentation
-    const resClone = response.clone();
+    // Handle response properly to avoid "Response body is already used" error
+    const responseClone = response.clone();
+    const responseText = await response.text();
+    const resClone = new Response(responseText, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+    
     if (!response.ok) {
       const errorText = await resClone.text();
       console.log('Error text:', errorText);

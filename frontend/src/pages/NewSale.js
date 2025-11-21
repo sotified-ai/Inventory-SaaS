@@ -1075,7 +1075,7 @@ const NewSale = () => {
                             </div>
                             <div className="text-xs text-gray-600">
                               SKU: {product.sku} | PKR {(product.selling_price ?? 0).toFixed(2)} | 
-                              {product.stock === 0 ? 
+                              {Number(product.stock) === 0 ? 
                                 <span className="text-red-500 font-bold">Out of Stock</span> : 
                                 <span>Stock: {product.stock}</span>
                               }

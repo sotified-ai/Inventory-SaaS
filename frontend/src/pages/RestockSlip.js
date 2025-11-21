@@ -21,7 +21,11 @@ const RestockSlip = () => {
     try {
       const data = await restockAPI.getById(restockId);
       // Parse items JSON
-      data.items = JSON.parse(data.items_json);
+      if (data.items_json) {
+        data.items = JSON.parse(data.items_json);
+      } else {
+        data.items = [];
+      }
       setRestock(data);
     } catch (error) {
       console.error("Failed to fetch restock transaction:", error);

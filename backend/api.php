@@ -422,6 +422,8 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
     // Market Supply
     elseif (preg_match('#/api\.php/api/supply$#', $path) || preg_match('#/api/supply$#', $path)) {
         if ($requestMethod === 'POST') handleCreateSupply($userId, $input);
+    } elseif (preg_match('#/api\.php/api/supply/history$#', $path) || preg_match('#/api/supply/history$#', $path)) {
+        if ($requestMethod === 'GET') handleGetSupplyHistory($userId, $_GET);
     } else {
         sendError(404, "Endpoint not found");
     }
@@ -472,7 +474,7 @@ function handleCreateSupply($userId, $input) {
             }
             
             // Check stock and get packing unit
-            $stmt = $pdo->prepare("SELECT stock, selling_price, packing_unit FROM products WHERE id = ? AND user_id = ?");
+            $stmt = $pdo->prepare("SELECT stock, default_selling_price, packing_unit FROM products WHERE id = ? AND user_id = ?");
             $stmt->execute([$productId, $userId]);
             $product = $stmt->fetch();
             
@@ -484,7 +486,7 @@ function handleCreateSupply($userId, $input) {
             $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
             $stmt->execute([$quantity, $productId]);
 
-            $itemValue = $product['selling_price'] * $quantity;
+            $itemValue = $product['default_selling_price'] * $quantity;
             $totalAmount += $itemValue;
             $totalQuantityPieces += $quantity;
 
@@ -496,19 +498,23 @@ function handleCreateSupply($userId, $input) {
         }
         
         // Insert supply transaction header
+        // Insert supply transaction header
         $stmt = $pdo->prepare("
             INSERT INTO market_supply 
-            (id, user_id, supply_number, supply_timestamp, total_amount, total_quantity_pieces, total_cartons)
-            VALUES (?, ?, ?, NOW(), ?, ?, ?)
+            (id, supply_number, customer_id, warehouse_id, driver_id, broker_id, total_ctns, total_quantity, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         ");
         
         $stmt->execute([
             $supplyId,
-            $userId,
             $supplyNumber,
-            $totalAmount,
+            null, // customer_id
+            1, // warehouse_id (default)
+            null, // driver_id
+            null, // broker_id
+            $totalCartons,
             $totalQuantityPieces,
-            $totalCartons
+            $userId
         ]);
         
         // Insert supply items (detail records)
@@ -527,7 +533,7 @@ function handleCreateSupply($userId, $input) {
             // Insert supply item detail
             $stmt = $pdo->prepare("
                 INSERT INTO market_supply_items 
-                (id, supply_id, product_id, quantity, return_quantity, total_cartons)
+                (id, market_supply_id, product_id, quantity, return_quantity, ctns)
                 VALUES (?, ?, ?, ?, ?, ?)
             ");
             
@@ -548,7 +554,7 @@ function handleCreateSupply($userId, $input) {
         $stmt->execute([$supplyId]);
         $supply = $stmt->fetch();
         
-        $stmt = $pdo->prepare("SELECT * FROM market_supply_items WHERE supply_id = ?");
+        $stmt = $pdo->prepare("SELECT * FROM market_supply_items WHERE market_supply_id = ?");
         $stmt->execute([$supplyId]);
         $supply['items'] = $stmt->fetchAll();
         
@@ -558,6 +564,67 @@ function handleCreateSupply($userId, $input) {
         $pdo->rollBack();
         sendError(400, $e->getMessage());
     }
+}
+
+function handleGetSupplyHistory($userId, $params) {
+    $pdo = getDBConnection();
+    
+    $query = "SELECT * FROM market_supply WHERE created_by = ?";
+    $queryParams = [$userId];
+    
+    // Handle date filtering with timezone conversion
+    if (!empty($params['from_date'])) {
+        try {
+            // Convert ISO string to DateTime and set to Asia/Karachi timezone
+            $fromDate = new DateTime($params['from_date']);
+            $fromDate->setTimezone(new DateTimeZone('Asia/Karachi'));
+            // Set to start of day in PKT
+            $fromDate->setTime(0, 0, 0);
+            // Convert back to UTC for database query
+            $fromDate->setTimezone(new DateTimeZone('UTC'));
+            $fromDateString = $fromDate->format('Y-m-d H:i:s');
+            
+            $query .= " AND created_at >= ?";
+            $queryParams[] = $fromDateString;
+        } catch (Exception $e) {
+            // If date parsing fails, log the error but continue without date filter
+            error_log("Date parsing error for from_date: " . $e->getMessage());
+        }
+    }
+    
+    if (!empty($params['to_date'])) {
+        try {
+            // Convert ISO string to DateTime and set to Asia/Karachi timezone
+            $toDate = new DateTime($params['to_date']);
+            $toDate->setTimezone(new DateTimeZone('Asia/Karachi'));
+            // Set to end of day in PKT
+            $toDate->setTime(23, 59, 59);
+            // Convert back to UTC for database query
+            $toDate->setTimezone(new DateTimeZone('UTC'));
+            $toDateString = $toDate->format('Y-m-d H:i:s');
+            
+            $query .= " AND created_at <= ?";
+            $queryParams[] = $toDateString;
+        } catch (Exception $e) {
+            // If date parsing fails, log the error but continue without date filter
+            error_log("Date parsing error for to_date: " . $e->getMessage());
+        }
+    }
+    
+    $query .= " ORDER BY created_at DESC";
+    
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($queryParams);
+    $supplies = $stmt->fetchAll();
+    
+    // Attach items to each supply
+    foreach ($supplies as &$supply) {
+        $stmt = $pdo->prepare("SELECT * FROM market_supply_items WHERE market_supply_id = ?");
+        $stmt->execute([$supply['id']]);
+        $supply['items'] = $stmt->fetchAll();
+    }
+    
+    sendSuccess($supplies);
 }
 
 // ==================== AUTHENTICATION ====================

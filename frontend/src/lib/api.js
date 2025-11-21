@@ -23,25 +23,54 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
-const BASE_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`;
+const BASE_URL = API_BASE;
 
-// Safely parse responses by cloning immediately and consuming the clone once.
+// Safely parse responses
 const parseResponseJSON = async (response, context = '') => {
-  const appResponse = response.clone();
-  if (!appResponse.ok) {
+  // Read the response body directly to avoid conflicts with external libraries
+  const text = await response.text();
+  
+  if (!response.ok) {
+    let errorMessage = context ? `${context}: ${text}` : text;
+    let errorData = null;
+    
+    // Try to parse JSON error response
     try {
-      const errorText = await appResponse.text();
-      throw new Error(context ? `${context}: ${errorText}` : errorText);
+      errorData = JSON.parse(text);
+      errorMessage = errorData.detail || errorData.message || errorMessage;
     } catch (e) {
-      throw new Error(context ? `${context}: HTTP ${appResponse.status}` : `HTTP ${appResponse.status}`);
+      // If parsing fails, use the raw text
     }
+    
+    // Handle authentication errors
+    if (response.status === 401) {
+      handleAuthError();
+    }
+    
+    throw new Error(errorMessage);
   }
-  const text = await appResponse.text();
+  
   try {
     return JSON.parse(text);
   } catch {
     return { detail: text };
   }
+};
+
+// Wrapper function to prevent rrweb recorder from accessing original response
+const safeFetch = async (url, options) => {
+  const response = await fetch(url, options);
+  
+  // Handle response properly to avoid "Response body is already used" error
+  const responseClone = response.clone();
+  const responseText = await response.text();
+  
+  // Create a new response object with the consumed body
+  return new Response(responseText, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  });
 };
 
 const getAuthHeaders = () => {
@@ -55,41 +84,42 @@ const getAuthHeaders = () => {
   };
 };
 
+// Check if user is authenticated
+const isAuthenticated = () => {
+  return !!localStorage.getItem("mysql-token");
+};
+
+// Handle authentication errors
+const handleAuthError = () => {
+  localStorage.removeItem("mysql-token");
+  localStorage.removeItem("skip-login");
+  // Redirect to login page
+  if (typeof window !== 'undefined') {
+    window.location.href = "/auth";
+  }
+};
+
 // Products API
 export const productsAPI = {
   getAll: async () => {
-    const response = await fetch(`${BASE_URL}/products`, {
+    const response = await safeFetch(`${BASE_URL}/products`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch products');
   },
 
   create: async (productData) => {
-    try {
-      console.log('Creating product:', productData);
-      console.log('BASE_URL:', BASE_URL);
-      const headers = getAuthHeaders();
-      console.log('Headers:', headers);
-      
-      const response = await fetch(`${BASE_URL}/products`, {
-        method: "POST",
-        headers: headers,
-        body: JSON.stringify(productData),
-      });
-      
-      console.log('Response status:', response.status);
-      
-      const result = await parseResponseJSON(response, 'Failed to create product');
-      console.log('Product created:', result);
-      return result;
-    } catch (error) {
-      console.error('Create product error:', error);
-      throw error;
-    }
+    const response = await safeFetch(`${BASE_URL}/products`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(productData),
+    });
+    
+    return parseResponseJSON(response, 'Failed to create product');
   },
 
   update: async (productId, productData) => {
-    const response = await fetch(`${BASE_URL}/products/${productId}`, {
+    const response = await safeFetch(`${BASE_URL}/products/${productId}`, {
       method: "PUT",
       headers: getAuthHeaders(),
       body: JSON.stringify(productData),
@@ -98,7 +128,7 @@ export const productsAPI = {
   },
 
   delete: async (productId) => {
-    const response = await fetch(`${BASE_URL}/products/${productId}`, {
+    const response = await safeFetch(`${BASE_URL}/products/${productId}`, {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
@@ -106,7 +136,7 @@ export const productsAPI = {
   },
 
   restock: async (productId, quantity) => {
-    const response = await fetch(`${BASE_URL}/products/restock`, {
+    const response = await safeFetch(`${BASE_URL}/products/restock`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({ product_id: productId, quantity }),
@@ -118,7 +148,7 @@ export const productsAPI = {
 // Sales API
 export const salesAPI = {
   create: async (data) => {
-    const response = await fetch(`${API_BASE}/sales`, {
+    const response = await safeFetch(`${API_BASE}/sales`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
@@ -126,7 +156,7 @@ export const salesAPI = {
     return parseResponseJSON(response, 'Failed to create sale');
   },
   createSupply: async (data) => {
-    const response = await fetch(`${API_BASE}/supply`, {
+    const response = await safeFetch(`${BASE_URL}/supply`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
@@ -134,7 +164,7 @@ export const salesAPI = {
     return parseResponseJSON(response, 'Failed to create supply sheet');
   },
   update: async (id, data) => {
-    const response = await fetch(`${API_BASE}/sales/${id}`, {
+    const response = await safeFetch(`${API_BASE}/sales/${id}`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
@@ -143,7 +173,7 @@ export const salesAPI = {
   },
 
   delete: async (invoiceId) => {
-    const response = await fetch(`${BASE_URL}/sales/${invoiceId}`, {
+    const response = await safeFetch(`${BASE_URL}/sales/${invoiceId}`, {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
@@ -157,24 +187,49 @@ export const salesAPI = {
     if (toDate) params.append("to_date", toDate);
     if (params.toString()) url += `?${params.toString()}`;
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch sales history');
   },
 };
 
+// Supply API
+export const supplyAPI = {
+  create: async (data) => {
+    const response = await safeFetch(`${BASE_URL}/supply`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return parseResponseJSON(response, 'Failed to create supply sheet');
+  },
+
+  getHistory: async (fromDate, toDate) => {
+    let url = `${BASE_URL}/supply/history`;
+    const params = new URLSearchParams();
+    if (fromDate) params.append("from_date", fromDate);
+    if (toDate) params.append("to_date", toDate);
+    if (params.toString()) url += `?${params.toString()}`;
+
+    const response = await safeFetch(url, {
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to fetch supply history');
+  },
+};
+
 // Invoices API
 export const invoicesAPI = {
   getAll: async () => {
-    const response = await fetch(`${BASE_URL}/invoices`, {
+    const response = await safeFetch(`${BASE_URL}/invoices`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch invoices');
   },
 
   getById: async (invoiceId) => {
-    const response = await fetch(`${BASE_URL}/invoices/${invoiceId}`, {
+    const response = await safeFetch(`${BASE_URL}/invoices/${invoiceId}`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch invoice');
@@ -184,21 +239,21 @@ export const invoicesAPI = {
 // Dashboard API
 export const dashboardAPI = {
   getStats: async () => {
-    const response = await fetch(`${BASE_URL}/dashboard/stats`, {
+    const response = await safeFetch(`${BASE_URL}/dashboard/stats`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch dashboard stats');
   },
 
   getSummary: async () => {
-    const response = await fetch(`${BASE_URL}/reports/dashboard_summary`, {
+    const response = await safeFetch(`${BASE_URL}/reports/dashboard_summary`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch dashboard summary');
   },
 
   getItemizedSales: async (range = 'today') => {
-    const response = await fetch(`${BASE_URL}/reports/itemized_sales_summary?range=${range}`, {
+    const response = await safeFetch(`${BASE_URL}/reports/itemized_sales_summary?range=${range}`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch itemized sales');
@@ -208,14 +263,14 @@ export const dashboardAPI = {
 // Categories API
 export const categoriesAPI = {
   getAll: async () => {
-    const response = await fetch(`${BASE_URL}/categories`, {
+    const response = await safeFetch(`${BASE_URL}/categories`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch categories');
   },
 
   create: async (categoryData) => {
-    const response = await fetch(`${BASE_URL}/categories`, {
+    const response = await safeFetch(`${BASE_URL}/categories`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(categoryData),
@@ -224,7 +279,7 @@ export const categoriesAPI = {
   },
 
   update: async (categoryId, categoryData) => {
-    const response = await fetch(`${BASE_URL}/categories/${categoryId}`, {
+    const response = await safeFetch(`${BASE_URL}/categories/${categoryId}`, {
       method: "PUT",
       headers: getAuthHeaders(),
       body: JSON.stringify(categoryData),
@@ -233,7 +288,7 @@ export const categoriesAPI = {
   },
 
   delete: async (categoryId) => {
-    const response = await fetch(`${BASE_URL}/categories/${categoryId}`, {
+    const response = await safeFetch(`${BASE_URL}/categories/${categoryId}`, {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
@@ -244,7 +299,7 @@ export const categoriesAPI = {
 // Restock API
 export const restockAPI = {
   create: async (restockData) => {
-    const response = await fetch(`${BASE_URL}/restock`, {
+    const response = await safeFetch(`${BASE_URL}/restock`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(restockData),
@@ -253,7 +308,7 @@ export const restockAPI = {
   },
 
   update: async (restockId, restockData) => {
-    const response = await fetch(`${BASE_URL}/restock/transactions/${restockId}`, {
+    const response = await safeFetch(`${BASE_URL}/restock/transactions/${restockId}`, {
       method: "PUT",
       headers: getAuthHeaders(),
       body: JSON.stringify(restockData),
@@ -262,7 +317,7 @@ export const restockAPI = {
   },
 
   delete: async (restockId) => {
-    const response = await fetch(`${BASE_URL}/restock/transactions/${restockId}`, {
+    const response = await safeFetch(`${BASE_URL}/restock/transactions/${restockId}`, {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
@@ -270,14 +325,14 @@ export const restockAPI = {
   },
 
   getAll: async () => {
-    const response = await fetch(`${BASE_URL}/restock/transactions`, {
+    const response = await safeFetch(`${BASE_URL}/restock/transactions`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch restock transactions');
   },
 
   getById: async (restockId) => {
-    const response = await fetch(`${BASE_URL}/restock/transactions/${restockId}`, {
+    const response = await safeFetch(`${BASE_URL}/restock/transactions/${restockId}`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch restock transaction');
@@ -285,7 +340,7 @@ export const restockAPI = {
 
   getCombinedReport: async (params = {}) => {
     const urlParams = new URLSearchParams(params);
-    const response = await fetch(`${BASE_URL}/reports/combined_restock?${urlParams.toString()}`, {
+    const response = await safeFetch(`${BASE_URL}/reports/combined_restock?${urlParams.toString()}`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch combined restock report');

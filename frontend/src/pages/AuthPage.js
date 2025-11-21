@@ -32,12 +32,12 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
-const BASE_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`;
+const BASE_URL = API_BASE;
 
 const AuthPage = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [useMySQL, setUseMySQL] = useState(true);
 
   const handleMySQLLogin = async () => {
@@ -51,8 +51,17 @@ const AuthPage = () => {
         },
         body: JSON.stringify({ username, password }),
       });
-      // Clone immediately so any instrumentation can use the original safely
-      const appResponse = response.clone();
+      
+      // Handle response properly to avoid "Response body is already used" error
+      const responseClone = response.clone();
+      const responseText = await response.text();
+      
+      // Create a new response object with the consumed body for app use
+      const appResponse = new Response(responseText, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers
+      });
 
       if (!appResponse.ok) {
         const errorText = await appResponse.text();

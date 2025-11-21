@@ -51,6 +51,7 @@ const DashboardLayout = ({ children }) => {
     { path: "/new-sale", label: "New Sale", icon: ShoppingCart, testId: "nav-new-sale" },
     { path: "/sales-history", label: "Sales History", icon: Receipt, testId: "nav-sales-history" },
     { path: "/market-supply", label: "Market Supply", icon: ShoppingCart, testId: "nav-market-supply" },
+    { path: "/supply-history", label: "Supply History", icon: Receipt, testId: "nav-supply-history" },
     { path: "/restock-transactions", label: "Restock", icon: Package, testId: "nav-restock" },
   ];
 
