@@ -6,6 +6,7 @@ import { Printer } from "lucide-react";
 import { toast } from "sonner";
 import { restockAPI } from "@/lib/api";
 import { SYSTEM_NAME } from "@/App";
+import { formatNumber } from "@/lib/utils";
 
 const RestockSlip = () => {
   const { restockId } = useParams();
@@ -21,7 +22,11 @@ const RestockSlip = () => {
     try {
       const data = await restockAPI.getById(restockId);
       // Parse items JSON
-      data.items = JSON.parse(data.items_json);
+      if (data.items_json) {
+        data.items = JSON.parse(data.items_json);
+      } else {
+        data.items = [];
+      }
       setRestock(data);
     } catch (error) {
       console.error("Failed to fetch restock transaction:", error);
@@ -136,16 +141,16 @@ const RestockSlip = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {restock.items.map((item, idx) => (
+                  {(restock.items || []).map((item, idx) => (
                     <tr key={idx} className="border-b border-gray-200 hover:bg-gray-50" data-testid={`restock-item-${idx}`}>
                       <td className="py-3 px-2 font-medium">{item.product_name}</td>
                       <td className="py-3 px-2 text-gray-600">{item.product_sku}</td>
                       <td className="text-right py-3 px-2">{item.quantity}</td>
                       <td className="text-right py-3 px-2">
-                        PKR {parseFloat(item.cost_price).toFixed(2)}
+                        PKR {formatNumber(item.cost_price)}
                       </td>
                       <td className="text-right py-3 px-2 font-medium">
-                        PKR {parseFloat(item.item_value).toFixed(2)}
+                        PKR {formatNumber(item.item_value)}
                       </td>
                     </tr>
                   ))}
@@ -162,7 +167,7 @@ const RestockSlip = () => {
                   </div>
                   <div className="flex justify-between py-2 border-t font-bold text-lg">
                     <span>Total Value:</span>
-                    <span data-testid="restock-total">PKR {parseFloat(restock.total_restock_value).toFixed(2)}</span>
+                    <span data-testid="restock-total">PKR {formatNumber(restock.total_restock_value)}</span>
                   </div>
                 </div>
               </div>

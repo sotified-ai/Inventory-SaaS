@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { collection, getDocs } from "firebase/firestore";
 import { dashboardAPI, productsAPI, isUsingMySQL } from "@/lib/api";
+import { formatNumber } from "@/lib/utils";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -35,7 +36,7 @@ const Dashboard = () => {
   const fetchProducts = async () => {
     const usingMySQL = isUsingMySQL();
     if (!usingMySQL) return;
-    
+
     // Check if token exists before making request
     const token = localStorage.getItem("mysql-token");
     if (!token) {
@@ -49,7 +50,7 @@ const Dashboard = () => {
     } catch (error) {
       console.error("Failed to fetch products:", error);
       // Redirect to login if unauthorized
-      if (error.message.includes("Authorization header missing") || error.message.includes("401")) {
+      if (error.message.includes("Authorization header missing") || error.message.includes("401") || error.message.includes("Invalid token")) {
         localStorage.removeItem("mysql-token");
         localStorage.removeItem("skip-login");
         window.location.href = "/auth";
@@ -87,14 +88,14 @@ const Dashboard = () => {
         const totalProducts = products.length;
         const lowStockProducts = products.filter((p) => p.stock <= p.min_stock);
         const totalSales = sales.length;
-        
+
         // Calculate Total Revenue using finalTotalAmount (4.1 Dashboard Fix)
         const totalRevenue = sales.reduce((sum, sale) => {
           // Use unified field names: finalTotalAmount or fall back to total
           const saleTotal = sale.finalTotalAmount || sale.total || 0;
           return sum + saleTotal;
         }, 0);
-        
+
         // Calculate Solid Profit (selling_price - cost_price) * quantity sold
         let solidProfit = 0;
         sales.forEach((sale) => {
@@ -109,7 +110,7 @@ const Dashboard = () => {
             }
           });
         });
-        
+
         // Calculate Total Discount from all sales
         const totalDiscount = sales.reduce((sum, sale) => {
           // Use unified field names: finalDiscountAmount or fall back to final_discount_amount
@@ -134,7 +135,7 @@ const Dashboard = () => {
       }
       return;
     }
-    
+
     // MySQL mode
     try {
       // Check if token exists before making request
@@ -144,13 +145,13 @@ const Dashboard = () => {
         setLoading(false);
         return;
       }
-      
+
       const data = await dashboardAPI.getStats();
       setStats(data);
     } catch (error) {
       console.error("Failed to fetch stats:", error);
       // Redirect to login if unauthorized
-      if (error.message.includes("Authorization header missing") || error.message.includes("401")) {
+      if (error.message.includes("Authorization header missing") || error.message.includes("401") || error.message.includes("Invalid token")) {
         localStorage.removeItem("mysql-token");
         localStorage.removeItem("skip-login");
         window.location.href = "/auth";
@@ -163,14 +164,14 @@ const Dashboard = () => {
   const fetchItemizedSales = async (range) => {
     const usingMySQL = isUsingMySQL();
     if (!usingMySQL) return; // Only for MySQL mode
-    
+
     // Check if token exists before making request
     const token = localStorage.getItem("mysql-token");
     if (!token) {
       console.log("No authentication token found");
       return;
     }
-    
+
     setLoadingItemized(true);
     try {
       const data = await dashboardAPI.getItemizedSales(range);
@@ -179,7 +180,7 @@ const Dashboard = () => {
     } catch (error) {
       console.error("Failed to fetch itemized sales:", error);
       // Redirect to login if unauthorized
-      if (error.message.includes("Authorization header missing") || error.message.includes("401")) {
+      if (error.message.includes("Authorization header missing") || error.message.includes("401") || error.message.includes("Invalid token")) {
         localStorage.removeItem("mysql-token");
         localStorage.removeItem("skip-login");
         window.location.href = "/auth";
@@ -220,8 +221,8 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        <div 
-          className="cursor-pointer" 
+        <div
+          className="cursor-pointer"
           onClick={() => navigate('/products?filter=low-stock')}
           data-testid="stat-low-stock"
         >
@@ -266,7 +267,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-gray-900">
-              PKR {stats?.total_revenue?.toFixed(2) || '0.00'}
+              PKR {formatNumber(stats?.total_revenue || 0)}
             </div>
             <p className="text-xs text-gray-500 mt-1">
               From {stats?.total_sales || 0} sales
@@ -274,19 +275,19 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        <Card className="glass-effect hover-lift border-0" data-testid="stat-solid-profit">
+        <Card className="glass-effect hover-lift border-0" data-testid="stat-net-profit">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">
-              Solid Profit
+              Net Profit
             </CardTitle>
             <TrendingUp className="h-5 w-5 text-emerald-500" />
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-emerald-600">
-              PKR {stats?.solid_profit?.toFixed(2) || '0.00'}
+              PKR {formatNumber(stats?.net_profit || 0)}
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Selling Price - Cost Price
+              Revenue - COGS
             </p>
           </CardContent>
         </Card>
@@ -300,7 +301,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-red-600">
-              PKR {stats?.total_discount?.toFixed(2) || '0.00'}
+              PKR {formatNumber(stats?.total_discount || 0)}
             </div>
             <p className="text-xs text-gray-500 mt-1">
               Total discounts given
@@ -433,15 +434,15 @@ const Dashboard = () => {
                             </div>
                           </TableCell>
                           <TableCell className="text-right">{item.total_quantity_sold || 0}</TableCell>
-                          <TableCell className="text-right">{(item.unit_price || 0).toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-semibold">{(item.total_line_revenue || 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{formatNumber(item.unit_price || 0)}</TableCell>
+                          <TableCell className="text-right font-semibold">{formatNumber(item.total_line_revenue || 0)}</TableCell>
                         </TableRow>
                       ))}
                       <TableRow className="bg-gray-50 font-bold">
                         <TableCell>Total</TableCell>
                         <TableCell className="text-right">{itemizedSales.total_quantity || 0}</TableCell>
                         <TableCell className="text-right">-</TableCell>
-                        <TableCell className="text-right">PKR {(itemizedSales.total_revenue || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">PKR {formatNumber(itemizedSales.total_revenue || 0)}</TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
@@ -450,7 +451,7 @@ const Dashboard = () => {
                   <p className="font-medium">Summary:</p>
                   <p>• {itemizedSales.total_items || 0} unique product(s) sold</p>
                   <p>• Total Units Sold: {itemizedSales.total_quantity || 0} (includes paid + bonus quantities)</p>
-                  <p>• Total Revenue: PKR {(itemizedSales.total_revenue || 0).toFixed(2)} (based on paid quantities only)</p>
+                  <p>• Total Revenue: PKR {formatNumber(itemizedSales.total_revenue || 0)} (based on paid quantities only)</p>
                 </div>
               </>
             ) : (
@@ -471,7 +472,7 @@ const Dashboard = () => {
               Current inventory information for this product
             </DialogDescription>
           </DialogHeader>
-          {selectedProduct && (
+          {selectedProduct && formatNumber(
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -496,11 +497,11 @@ const Dashboard = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-xs text-gray-600">Selling Price</Label>
-                  <p className="font-semibold text-green-600">PKR {selectedProduct.selling_price.toFixed(2)}</p>
+                  <p className="font-semibold text-green-600">PKR {parseFloat(selectedProduct.selling_price || 0)}</p>
                 </div>
                 <div>
                   <Label className="text-xs text-gray-600">Cost Price</Label>
-                  <p className="font-semibold text-blue-600">PKR {selectedProduct.cost_price.toFixed(2)}</p>
+                  <p className="font-semibold text-blue-600">PKR {formatNumber(selectedProduct.cost_price || 0)}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">

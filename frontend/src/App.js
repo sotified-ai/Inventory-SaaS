@@ -8,8 +8,15 @@ import Dashboard from "@/pages/Dashboard";
 import Products from "@/pages/Products";
 import NewSale from "@/pages/NewSale";
 import SalesHistory from "@/pages/SalesHistory";
+import MarketSupply from "@/pages/MarketSupply";
+import MarketSupplyHistory from "@/pages/MarketSupplyHistory";
 import RestockSlip from "@/pages/RestockSlip";
 import RestockTransactions from "@/pages/RestockTransactions";
+import Warehouses from "@/pages/Warehouses";
+import Suppliers from "@/pages/Suppliers";
+import Customers from "@/pages/Customers";
+import Brokers from "@/pages/Brokers";
+import Drivers from "@/pages/Drivers";
 import { Toaster } from "@/components/ui/sonner";
 
 // System Branding Configuration
@@ -102,6 +109,30 @@ function App() {
             }
           />
           <Route
+            path="/market-supply"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <MarketSupply />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
+            path="/supply-history"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <MarketSupplyHistory />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
             path="/restock/:restockId"
             element={
               user || skipLogin ? (
@@ -119,6 +150,66 @@ function App() {
               user || skipLogin ? (
                 <DashboardLayout>
                   <RestockTransactions />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
+            path="/warehouses"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <Warehouses />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
+            path="/suppliers"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <Suppliers />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
+            path="/customers"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <Customers />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
+            path="/brokers"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <Brokers />
+                </DashboardLayout>
+              ) : (
+                <Navigate to="/auth" />
+              )
+            }
+          />
+          <Route
+            path="/drivers"
+            element={
+              user || skipLogin ? (
+                <DashboardLayout>
+                  <Drivers />
                 </DashboardLayout>
               ) : (
                 <Navigate to="/auth" />
