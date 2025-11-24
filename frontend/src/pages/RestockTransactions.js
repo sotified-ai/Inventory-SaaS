@@ -11,6 +11,7 @@ import RestockCart from "@/components/RestockCart";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format } from "date-fns";
+import { formatNumber } from "@/lib/utils";
 
 const RestockTransactions = () => {
   const navigate = useNavigate();
@@ -103,8 +104,8 @@ const RestockTransactions = () => {
             {viewMode === "transactions" ? "Restock Transactions" : "Combined Restock Report"}
           </h1>
           <p className="text-gray-600">
-            {viewMode === "transactions" 
-              ? "View all restock transactions" 
+            {viewMode === "transactions"
+              ? "View all restock transactions"
               : "View consolidated restock report"}
           </p>
         </div>
@@ -213,7 +214,7 @@ const RestockTransactions = () => {
                         <TableCell>{restock.booker_name || "-"}</TableCell>
                         <TableCell>{restock.deliveryman_name || "-"}</TableCell>
                         <TableCell>{restock.total_items_restocked}</TableCell>
-                        <TableCell>PKR {parseFloat(restock.total_restock_value).toFixed(2)}</TableCell>
+                        <TableCell>PKR {formatNumber(restock.total_restock_value)}</TableCell>
                         <TableCell className="text-right space-x-2">
                           <Button
                             variant="outline"
@@ -248,8 +249,8 @@ const RestockTransactions = () => {
       )}
 
       {viewMode === "report" && reportData && (
-        <CombinedRestockSlip 
-          reportData={reportData} 
+        <CombinedRestockSlip
+          reportData={reportData}
           dateRange={{ from: date.from, to: date.to }}
         />
       )}

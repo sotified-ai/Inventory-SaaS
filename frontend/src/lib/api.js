@@ -8,10 +8,6 @@ function resolveApiBase() {
       if (host.includes('realgiveaways.com')) {
         return '/api.php/api';
       }
-      // Local development: point to local PHP server if running , if not works remve this 
-      if (host === 'localhost' || host === '127.0.0.1') {
-        return 'http://localhost:8000/api.php/api';
-      }
     }
   } catch (_) {}
   // Fallbacks: explicit env, backend URL, or remote PHP
@@ -22,7 +18,7 @@ function resolveApiBase() {
   return base;
 }
 
-const API_BASE = resolveApiBase();
+export const API_BASE = resolveApiBase();
 const BASE_URL = API_BASE;
 
 // Safely parse responses
@@ -344,6 +340,186 @@ export const restockAPI = {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch combined restock report');
+  },
+};
+
+// Suppliers API
+export const suppliersAPI = {
+  getAll: async () => {
+    const response = await safeFetch(`${BASE_URL}/suppliers`, {
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to fetch suppliers');
+  },
+
+  create: async (supplierData) => {
+    const response = await safeFetch(`${BASE_URL}/suppliers`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(supplierData),
+    });
+    return parseResponseJSON(response, 'Failed to create supplier');
+  },
+
+  update: async (supplierId, supplierData) => {
+    const response = await safeFetch(`${BASE_URL}/suppliers/${supplierId}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(supplierData),
+    });
+    return parseResponseJSON(response, 'Failed to update supplier');
+  },
+
+  delete: async (supplierId) => {
+    const response = await safeFetch(`${BASE_URL}/suppliers/${supplierId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to delete supplier');
+  },
+};
+
+// Customers API
+export const customersAPI = {
+  getAll: async () => {
+    const response = await safeFetch(`${BASE_URL}/customers`, {
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to fetch customers');
+  },
+
+  create: async (customerData) => {
+    const response = await safeFetch(`${BASE_URL}/customers`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(customerData),
+    });
+    return parseResponseJSON(response, 'Failed to create customer');
+  },
+
+  update: async (customerId, customerData) => {
+    const response = await safeFetch(`${BASE_URL}/customers/${customerId}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(customerData),
+    });
+    return parseResponseJSON(response, 'Failed to update customer');
+  },
+
+  delete: async (customerId) => {
+    const response = await safeFetch(`${BASE_URL}/customers/${customerId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to delete customer');
+  },
+};
+
+// Brokers API
+export const brokersAPI = {
+  getAll: async () => {
+    const response = await safeFetch(`${BASE_URL}/brokers`, {
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to fetch brokers');
+  },
+
+  create: async (brokerData) => {
+    const response = await safeFetch(`${BASE_URL}/brokers`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(brokerData),
+    });
+    return parseResponseJSON(response, 'Failed to create broker');
+  },
+
+  update: async (brokerId, brokerData) => {
+    const response = await safeFetch(`${BASE_URL}/brokers/${brokerId}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(brokerData),
+    });
+    return parseResponseJSON(response, 'Failed to update broker');
+  },
+
+  delete: async (brokerId) => {
+    const response = await safeFetch(`${BASE_URL}/brokers/${brokerId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to delete broker');
+  },
+};
+
+// Drivers API
+export const driversAPI = {
+  getAll: async () => {
+    const response = await safeFetch(`${BASE_URL}/drivers`, {
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to fetch drivers');
+  },
+
+  create: async (driverData) => {
+    const response = await safeFetch(`${BASE_URL}/drivers`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(driverData),
+    });
+    return parseResponseJSON(response, 'Failed to create driver');
+  },
+
+  update: async (driverId, driverData) => {
+    const response = await safeFetch(`${BASE_URL}/drivers/${driverId}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(driverData),
+    });
+    return parseResponseJSON(response, 'Failed to update driver');
+  },
+
+  delete: async (driverId) => {
+    const response = await safeFetch(`${BASE_URL}/drivers/${driverId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to delete driver');
+  },
+};
+
+// Warehouses API
+export const warehousesAPI = {
+  getAll: async () => {
+    const response = await safeFetch(`${BASE_URL}/warehouses`, {
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to fetch warehouses');
+  },
+
+  create: async (warehouseData) => {
+    const response = await safeFetch(`${BASE_URL}/warehouses`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(warehouseData),
+    });
+    return parseResponseJSON(response, 'Failed to create warehouse');
+  },
+
+  update: async (warehouseId, warehouseData) => {
+    const response = await safeFetch(`${BASE_URL}/warehouses/${warehouseId}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(warehouseData),
+    });
+    return parseResponseJSON(response, 'Failed to update warehouse');
+  },
+
+  delete: async (warehouseId) => {
+    const response = await safeFetch(`${BASE_URL}/warehouses/${warehouseId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to delete warehouse');
   },
 };
 

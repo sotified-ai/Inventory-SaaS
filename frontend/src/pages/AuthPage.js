@@ -9,29 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Package } from "lucide-react";
+import { API_BASE } from "@/lib/api";
 
-// Use same logic as lib/api.js to resolve base
-function resolveApiBase() {
-  try {
-    if (typeof window !== 'undefined') {
-      const host = window.location.hostname || '';
-      if (host.includes('realgiveaways.com')) {
-        return '/api.php/api';
-      }
-      // Local development: use local PHP backend
-      if (host === 'localhost' || host === '127.0.0.1') {
-        return 'http://localhost:8000/api.php/api';
-      }
-    }
-  } catch (_) {}
-  const base = (
-    process.env.REACT_APP_API_BASE ||
-    (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : `https://realgiveaways.com/api.php/api`)
-  );
-  return base;
-}
-
-const API_BASE = resolveApiBase();
 const BASE_URL = API_BASE;
 
 const AuthPage = () => {

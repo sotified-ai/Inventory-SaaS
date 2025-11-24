@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Eye, Edit, CalendarIcon, Filter, Printer, Trash2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { collection, query, where, orderBy, onSnapshot, Timestamp, doc, runTransaction, deleteDoc } from "firebase/firestore";
-import { cn } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 import { format } from "date-fns";
 import { salesAPI, productsAPI, isUsingMySQL } from "@/lib/api";
 import { SYSTEM_NAME } from "@/App";
@@ -68,18 +68,18 @@ const SalesHistory = () => {
 
   const fetchInvoices = async () => {
     const usingMySQL = isUsingMySQL();
-    
+
     // Clean up previous listener
     if (unsubscribeSnapshot) {
       unsubscribeSnapshot();
     }
-    
+
     try {
       if (usingMySQL) {
         // MySQL backend mode - use salesHistory API
         const fromISO = dateFrom ? getStartOfDayPKT(dateFrom).toISOString() : null;
         const toISO = dateTo ? getEndOfDayPKT(dateTo).toISOString() : null;
-        
+
         const data = await salesAPI.getHistory(fromISO, toISO);
         setInvoices(data);
         setLoading(false);
@@ -90,10 +90,10 @@ const SalesHistory = () => {
           setLoading(false);
           return;
         }
-        
+
         const salesCollection = collection(firestore, `users/${user.uid}/sales`);
         let q;
-        
+
         if (dateFrom && dateTo) {
           // Filter by date range using GMT+5 timezone
           const fromTimestamp = Timestamp.fromDate(getStartOfDayPKT(dateFrom));
@@ -121,7 +121,7 @@ const SalesHistory = () => {
         } else {
           q = query(salesCollection, orderBy("created_at", "desc"));
         }
-        
+
         // Set up real-time listener
         const unsubscribe = onSnapshot(
           q,
@@ -140,7 +140,7 @@ const SalesHistory = () => {
             setLoading(false);
           }
         );
-        
+
         setUnsubscribeSnapshot(() => unsubscribe);
       }
     } catch (error) {
@@ -149,7 +149,7 @@ const SalesHistory = () => {
       setLoading(false);
     }
   };
-  
+
   // Helper functions for GMT+5 (Pakistan Standard Time) timezone handling
   const convertToPKT = (date) => {
     // Convert to PKT by adding 5 hours to UTC
@@ -157,7 +157,7 @@ const SalesHistory = () => {
     utcDate.setHours(utcDate.getHours() + 5);
     return utcDate;
   };
-  
+
   const getStartOfDayPKT = (date) => {
     // Get start of day in PKT (00:00:00 PKT)
     const pktDate = new Date(date);
@@ -167,7 +167,7 @@ const SalesHistory = () => {
     utcDate.setHours(utcDate.getHours() - 5);
     return utcDate;
   };
-  
+
   const getEndOfDayPKT = (date) => {
     // Get end of day in PKT (23:59:59 PKT)
     const pktDate = new Date(date);
@@ -182,7 +182,7 @@ const SalesHistory = () => {
     setSelectedInvoice(invoice);
     setIsDialogOpen(true);
   };
-  
+
   const printInvoiceFromDialog = () => {
     // Create a new window for printing
     const printWindow = window.open('', '_blank');
@@ -190,9 +190,9 @@ const SalesHistory = () => {
       toast.error('Please allow popups to print invoices');
       return;
     }
-    
+
     const invoice = selectedInvoice;
-    
+
     // Helper function to format date as dd/mm/yyyy
     const formatDate = (dateString) => {
       const date = new Date(dateString);
@@ -201,7 +201,7 @@ const SalesHistory = () => {
       const year = date.getFullYear();
       return `${day}/${month}/${year}`;
     };
-    
+
     const printContent = `
       <!DOCTYPE html>
       <html>
@@ -309,14 +309,14 @@ const SalesHistory = () => {
         </head>
         <body>
           <div class="print-timestamp">
-            Printed on: ${new Date().toLocaleString('en-GB', { 
-              day: '2-digit', 
-              month: '2-digit', 
-              year: 'numeric', 
-              hour: '2-digit', 
-              minute: '2-digit',
-              hour12: true
-            })}
+            Printed on: ${new Date().toLocaleString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    })}
           </div>
           <div class="header">
             <div>
@@ -350,14 +350,14 @@ const SalesHistory = () => {
               </tr>
             </thead>
             <tbody>
-              ${invoice.items.map(item => `
+              ${(invoice.items || []).map(item => `
                 <tr>
                   <td>${item.name || item.product_name}</td>
                   <td class="text-right">${item.quantity}</td>
                   <td class="text-right">${item.bonus_quantity || 0}</td>
                   <td class="text-right"><strong>${item.quantity + (item.bonus_quantity || 0)}</strong></td>
-                  <td class="text-right">PKR ${(item.selling_price || item.unit_price || 0).toFixed(2)}</td>
-                  <td class="text-right">PKR ${(item.quantity * (item.selling_price || item.unit_price || 0)).toFixed(2)}</td>
+                  <td class="text-right">PKR ${formatNumber(item.selling_price || item.unit_price || 0)}</td>
+                  <td class="text-right">PKR ${formatNumber(item.quantity * (item.selling_price || item.unit_price || 0))}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -366,17 +366,17 @@ const SalesHistory = () => {
           <div class="totals">
             <div class="totals-row">
               <span>Subtotal:</span>
-              <span>PKR ${(invoice.subtotal || 0).toFixed(2)}</span>
+              <span>PKR ${formatNumber(invoice.subtotal || 0)}</span>
             </div>
             ${(invoice.discount_percentage || invoice.final_discount_percent || invoice.discountPercentage || 0) > 0 ? `
               <div class="totals-row discount">
-                <span>Discount (${(invoice.discount_percentage || invoice.final_discount_percent || invoice.discountPercentage || 0).toFixed(1)}%):</span>
-                <span>-PKR ${(invoice.final_discount_amount || invoice.finalDiscountAmount || 0).toFixed(2)}</span>
+                <span>Discount formatNumber(${(invoice.discount_percentage || invoice.final_discount_percent || invoice.discountPercentage || 0, 1)}%):</span>
+                <span>-PKR ${formatNumber(invoice.final_discount_amount || invoice.finalDiscountAmount || 0)}</span>
               </div>
             ` : ''}
             <div class="totals-row total">
               <span>Total:</span>
-              <span>PKR ${(invoice.final_total_amount || invoice.finalTotalAmount || invoice.total || 0).toFixed(2)}</span>
+              <span>PKR ${formatNumber(invoice.final_total_amount || invoice.finalTotalAmount || invoice.total || 0)}</span>
             </div>
           </div>
           
@@ -408,28 +408,28 @@ const SalesHistory = () => {
         </body>
       </html>
     `;
-    
+
     printWindow.document.write(printContent);
     printWindow.document.close();
   };
-  
+
   const editSale = (invoice) => {
     // Navigate to New Sale page with invoice data
     navigate("/new-sale", { state: { editInvoice: invoice } });
   };
-  
+
   const confirmDelete = (invoice) => {
     setInvoiceToDelete(invoice);
     setIsDeleteDialogOpen(true);
   };
-  
+
   const deleteSale = async () => {
     if (!invoiceToDelete) return;
-    
+
     const usingMySQL = isUsingMySQL();
-    
+
     setIsDeleting(true);
-    
+
     try {
       if (usingMySQL) {
         // MySQL backend - use API
@@ -441,39 +441,39 @@ const SalesHistory = () => {
       } else {
         const user = auth.currentUser;
         if (!user) return;
-        
+
         // Atomic deletion and stock reconciliation (3.2)
         await runTransaction(firestore, async (transaction) => {
           // Read invoice data
           const invoiceRef = doc(firestore, `users/${user.uid}/sales`, invoiceToDelete.id);
           const invoiceDoc = await transaction.get(invoiceRef);
-          
+
           if (!invoiceDoc.exists()) {
             throw new Error("Invoice not found");
           }
-          
+
           const invoiceData = invoiceDoc.data();
           const items = invoiceData.items || [];
-          
+
           // Reconcile stock - add back quantities
           for (const item of items) {
             const productId = item.productId || item.product_id;
             if (!productId) continue;
-            
+
             const productRef = doc(firestore, `users/${user.uid}/products`, productId);
             const productDoc = await transaction.get(productRef);
-            
+
             if (productDoc.exists()) {
               const currentStock = productDoc.data().stock;
               const newStock = currentStock + item.quantity;
               transaction.update(productRef, { stock: newStock });
             }
           }
-          
+
           // Delete the invoice
           transaction.delete(invoiceRef);
         });
-        
+
         toast.success("Sale deleted successfully and inventory restored");
         setIsDeleteDialogOpen(false);
         setInvoiceToDelete(null);
@@ -485,12 +485,12 @@ const SalesHistory = () => {
       setIsDeleting(false);
     }
   };
-  
+
   const clearFilters = () => {
     setDateFrom(null);
     setDateTo(null);
   };
-  
+
   const viewProductDetail = (productId) => {
     const product = products.find(p => p.id === productId);
     if (product) {
@@ -509,7 +509,7 @@ const SalesHistory = () => {
       return sum + qty + bonus;
     }, 0);
   };
-  
+
   const formatDateTimePKT = (dateString) => {
     const date = new Date(dateString);
     // Display in PKT timezone
@@ -524,7 +524,7 @@ const SalesHistory = () => {
       hour12: true
     });
   };
-  
+
   const formatDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -681,11 +681,11 @@ const SalesHistory = () => {
                         {getTotalItemsSold(invoice)}
                       </TableCell>
                       <TableCell className="text-right">
-                        {(invoice.discount_percentage || invoice.final_discount_percent || 0) > 0 ? (
+                        {(invoice.discount_percentage || invoice.final_discount_percent || 0) > 0 ? formatNumber(
                           <div>
-                            <div className="text-sm">{(invoice.discount_percentage || invoice.final_discount_percent || 0).toFixed(1)}%</div>
+                            <div className="text-sm">{(invoice.discount_percentage || invoice.final_discount_percent || 0, 1)}%</div>
                             <div className="text-xs text-gray-500">
-                              PKR {(invoice.final_discount_amount || invoice.finalDiscountAmount || 0).toFixed(2)}
+                              PKR {formatNumber(invoice.final_discount_amount || invoice.finalDiscountAmount || 0)}
                             </div>
                           </div>
                         ) : (
@@ -693,7 +693,7 @@ const SalesHistory = () => {
                         )}
                       </TableCell>
                       <TableCell className="text-right font-semibold">
-                        PKR {(invoice.final_total_amount || invoice.finalTotalAmount || invoice.total || 0).toFixed(2)}
+                        PKR {formatNumber(invoice.final_total_amount || invoice.finalTotalAmount || invoice.total || 0)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end space-x-2">
@@ -805,7 +805,7 @@ const SalesHistory = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedInvoice.items.map((item, idx) => (
+                    {(selectedInvoice.items || []).map((item, idx) => (
                       <tr key={idx} className="border-b" data-testid={`detail-item-${idx}`}>
                         <td className="py-2 px-2">
                           <div className="flex items-center gap-2">
@@ -825,10 +825,10 @@ const SalesHistory = () => {
                         <td className="text-right py-2 px-2">{item.bonus_quantity || 0}</td>
                         <td className="text-right py-2 px-2 font-semibold">{item.quantity + (item.bonus_quantity || 0)}</td>
                         <td className="text-right py-2 px-2">
-                          PKR {(item.pricePerUnit || item.selling_price || item.unit_price || 0).toFixed(2)}
+                          PKR {formatNumber(item.pricePerUnit || item.selling_price || item.unit_price || 0)}
                         </td>
                         <td className="text-right py-2 px-2">
-                          PKR {(item.totalLinePrice || item.total || (item.quantity * (item.pricePerUnit || item.selling_price || item.unit_price || 0))).toFixed(2)}
+                          PKR {formatNumber(item.totalLinePrice || item.total || (item.quantity * (item.pricePerUnit || item.selling_price || item.unit_price || 0)))}
                         </td>
                       </tr>
                     ))}
@@ -841,17 +841,17 @@ const SalesHistory = () => {
                   <div className="w-64">
                     <div className="flex justify-between py-2">
                       <span className="text-gray-600">Subtotal:</span>
-                      <span className="font-medium">PKR {(selectedInvoice.subtotal || 0).toFixed(2)}</span>
+                      <span className="font-medium">PKR {formatNumber(selectedInvoice.subtotal || 0)}</span>
                     </div>
-                    {(selectedInvoice.discount_percentage || selectedInvoice.discountPercentage || selectedInvoice.final_discount_percent || 0) > 0 && (
+                    {(selectedInvoice.discount_percentage || selectedInvoice.discountPercentage || selectedInvoice.final_discount_percent || 0) > 0 && formatNumber(
                       <div className="flex justify-between py-2">
-                        <span className="text-gray-600">Discount ({(selectedInvoice.discount_percentage || selectedInvoice.discountPercentage || selectedInvoice.final_discount_percent || 0).toFixed(1)}%):</span>
-                        <span className="font-medium text-red-600">-PKR {(selectedInvoice.final_discount_amount || selectedInvoice.finalDiscountAmount || 0).toFixed(2)}</span>
+                        <span className="text-gray-600">Discount ({(selectedInvoice.discount_percentage || selectedInvoice.discountPercentage || selectedInvoice.final_discount_percent || 0, 1)}%):</span>
+                        <span className="font-medium text-red-600">-PKR {formatNumber(selectedInvoice.final_discount_amount || selectedInvoice.finalDiscountAmount || 0)}</span>
                       </div>
                     )}
                     <div className="flex justify-between py-2 border-t font-bold text-lg">
                       <span>Total:</span>
-                      <span data-testid="detail-total">PKR {(selectedInvoice.final_total_amount || selectedInvoice.finalTotalAmount || selectedInvoice.total || 0).toFixed(2)}</span>
+                      <span data-testid="detail-total">PKR {formatNumber(selectedInvoice.final_total_amount || selectedInvoice.finalTotalAmount || selectedInvoice.total || 0)}</span>
                     </div>
                   </div>
                 </div>
@@ -868,10 +868,10 @@ const SalesHistory = () => {
             <AlertDialogTitle>Are you sure you want to delete this sale?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. The sale will be permanently deleted and the inventory will be restored.
-              {invoiceToDelete && (
+              {invoiceToDelete && formatNumber(
                 <div className="mt-4 p-3 bg-gray-50 rounded-md">
                   <p className="font-semibold">Invoice: {invoiceToDelete.invoice_number}</p>
-                  <p className="text-sm">Total: PKR {(invoiceToDelete.final_total_amount || invoiceToDelete.finalTotalAmount || invoiceToDelete.total || 0).toFixed(2)}</p>
+                  <p className="text-sm">Total: PKR {(invoiceToDelete.final_total_amount || invoiceToDelete.finalTotalAmount || invoiceToDelete.total || 0)}</p>
                   <p className="text-sm">Items: {invoiceToDelete.items.length}</p>
                 </div>
               )}
@@ -924,11 +924,11 @@ const SalesHistory = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-xs text-gray-600">Selling Price</Label>
-                  <p className="font-semibold text-green-600">PKR {selectedProduct.selling_price.toFixed(2)}</p>
+                  <p className="font-semibold text-green-600">PKR {formatNumber(selectedProduct.selling_price)}</p>
                 </div>
                 <div>
                   <Label className="text-xs text-gray-600">Cost Price</Label>
-                  <p className="font-semibold text-blue-600">PKR {selectedProduct.cost_price.toFixed(2)}</p>
+                  <p className="font-semibold text-blue-600">PKR {formatNumber(selectedProduct.cost_price)}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">

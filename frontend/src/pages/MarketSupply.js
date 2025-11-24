@@ -8,6 +8,7 @@ import { Plus, Minus, Trash2, ShoppingCart, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { productsAPI, salesAPI, isUsingMySQL } from "@/lib/api";
 import { SYSTEM_NAME } from "@/App";
+import { formatNumber } from "@/lib/utils";
 
 const MarketSupply = () => {
   const navigate = useNavigate();
@@ -96,12 +97,12 @@ const MarketSupply = () => {
     if (!productSearchQuery.trim()) {
       return products.filter(p => p.stock > 0);
     }
-    
+
     const query = productSearchQuery.toLowerCase();
     return products
       .filter(p => p.stock > 0)
-      .filter(p => 
-        p.name.toLowerCase().includes(query) || 
+      .filter(p =>
+        p.name.toLowerCase().includes(query) ||
         (p.sku && p.sku.toLowerCase().includes(query))
       );
   };
@@ -114,14 +115,14 @@ const MarketSupply = () => {
 
   const updateCartQuantity = (productId, newQuantity) => {
     const product = products.find((p) => p.id === productId);
-    
+
     if (newQuantity <= 0) {
       removeFromCart(productId);
       return;
     }
-    
+
     let availableStock = product.stock;
-    
+
     if (newQuantity > availableStock) {
       toast.error(`Insufficient stock. Available: ${availableStock}`);
       return;
@@ -174,7 +175,7 @@ const MarketSupply = () => {
 
     try {
       const total = calculateSubtotal();
-      
+
       const itemsWithTotals = cart.map((item) => {
         return {
           product_id: item.product.id,
@@ -190,7 +191,7 @@ const MarketSupply = () => {
 
       const supplyData = await salesAPI.createSupply(supplyPayload);
       toast.success("Market Supply Sheet created successfully!");
-      
+
       setSupplySheet(supplyData);
       resetSupplyForm();
       fetchProducts();
@@ -200,7 +201,7 @@ const MarketSupply = () => {
       toast.error(error.message || "Failed to complete supply sheet");
     }
   };
-  
+
   const resetSupplyForm = () => {
     setCart([]);
   };
@@ -212,7 +213,7 @@ const MarketSupply = () => {
       toast.error('Please allow popups to print the sheet');
       return;
     }
-    
+
     const styles = `
       <style>
         body { font-family: Arial, sans-serif; padding: 20px; }
@@ -222,7 +223,7 @@ const MarketSupply = () => {
         .no-print { display: none; }
       </style>
     `;
-    
+
     printWindow.document.write('<html><head><title>Market Supply Sheet</title>' + styles + '</head><body>' + printContent + '</body></html>');
     printWindow.document.close();
     printWindow.print();
@@ -265,14 +266,14 @@ const MarketSupply = () => {
                 </tr>
               </thead>
               <tbody>
-                {supplySheet.items.map((item, idx) => {
+                {(supplySheet.items || []).map((item, idx) => {
                   const product = products.find(p => p.id === item.product_id);
                   return (
                     <tr key={idx}>
                       <td>{product ? product.name : 'Unknown Product'}</td>
                       <td>{item.quantity}</td>
                       <td>{item.return_quantity}</td>
-                      <td>{parseFloat(item.ctns).toFixed(2)}</td>
+                      <td>{formatNumber(item.ctns)}</td>
                     </tr>
                   )
                 })}
@@ -280,7 +281,7 @@ const MarketSupply = () => {
             </table>
             <div className="mt-4 text-right">
               <p><strong>Total Quantity:</strong> {supplySheet.total_quantity} pieces</p>
-              <p><strong>Total CTNS:</strong> {parseFloat(supplySheet.total_ctns).toFixed(2)}</p>
+              <p><strong>Total CTNS:</strong> {formatNumber(supplySheet.total_ctns)}</p>
             </div>
           </CardContent>
         </Card>
@@ -385,7 +386,7 @@ const MarketSupply = () => {
                     </div>
                   ))}
                   <div className="border-t mt-4 pt-4">
-                    <p><strong>Total:</strong> PKR {calculateSubtotal().toFixed(2)}</p>
+                    <p><strong>Total:</strong> PKR {formatNumber(calculateSubtotal())}</p>
                   </div>
                   <Button onClick={finalizeSupply} className="w-full mt-4">Finalize Supply</Button>
                 </>

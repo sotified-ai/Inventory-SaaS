@@ -17,6 +17,17 @@ $env = function($key, $default = null) {
 
 
 
+// LOCAL DATABASE CONFIGURATION
+// define('DB_NAME', $env('DB_NAME', 'inv'));
+// define('DB_USER', $env('DB_USER', 'inv'));
+// define('DB_PASS', $env('DB_PASSWORD', 'inv07'));
+// define('DB_HOST', $env('DB_HOST', 'localhost'));
+// define('DB_PORT', (int)$env('DB_PORT', 3306));
+// define('DB_ENGINE', $env('DB_ENGINE', 'mysql'));
+// define('APP_SECRET', $env('APP_SECRET', 'inventory-saas-secret-key-change-in-production'));
+// define('CORS_ORIGINS', $env('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001'));
+
+// PRODUCTION DATABASE CONFIGURATION (COMMENTED OUT)
 define('DB_NAME', $env('DB_NAME', 'realgiveaways_inventory'));
 define('DB_USER', $env('DB_USER', 'realgiveaways_inventory'));
 define('DB_PASS', $env('DB_PASSWORD', '!nv3T0rY'));
@@ -85,6 +96,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();
 }
+
+// ==================== INCLUDE PHASE 1 HANDLERS ====================
+header('X-Debug-Step: 4-Including-Handlers');
+if (file_exists(__DIR__ . '/phase1_handlers.php')) {
+    require_once __DIR__ . '/phase1_handlers.php';
+    header('X-Debug-Phase1-Handlers: Loaded');
+    // Add debug to check if function exists after inclusion
+    if (function_exists('handleGetWarehouses')) {
+        header('X-Debug-Warehouse-Function: Found');
+    } else {
+        header('X-Debug-Warehouse-Function: Missing');
+    }
+} else {
+    header('X-Debug-Phase1-Handlers: Not-Found');
+}
+
+if (file_exists(__DIR__ . '/phase1_handlers_part2.php')) {
+    require_once __DIR__ . '/phase1_handlers_part2.php';
+    header('X-Debug-Phase1-Handlers-Part2: Loaded');
+} else {
+    header('X-Debug-Phase1-Handlers-Part2: Not-Found');
+}
+
+if (file_exists(__DIR__ . '/phase1_handlers_part3.php')) {
+    require_once __DIR__ . '/phase1_handlers_part3.php';
+    header('X-Debug-Phase1-Handlers-Part3: Loaded');
+} else {
+    header('X-Debug-Phase1-Handlers-Part3: Not-Found');
+}
+header('X-Debug-Step: 5-Handlers-Included');
 
 // Database Connection
 function getDBConnection($allowFail = false) {
@@ -363,6 +404,13 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
     $username = authenticateRequest();
     $userId = "mysql-$username";
     
+    // Debug: Check if warehouse function exists at routing time
+    if (function_exists('handleGetWarehouses')) {
+        header('X-Debug-Warehouse-Function-Routing: Found');
+    } else {
+        header('X-Debug-Warehouse-Function-Routing: Missing');
+    }
+    
     // Products
     if (preg_match('#/api\.php/api/products$#', $path) || preg_match('#/api/products$#', $path)) {
         if ($requestMethod === 'GET') handleGetProducts($userId);
@@ -424,10 +472,306 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
         if ($requestMethod === 'POST') handleCreateSupply($userId, $input);
     } elseif (preg_match('#/api\.php/api/supply/history$#', $path) || preg_match('#/api/supply/history$#', $path)) {
         if ($requestMethod === 'GET') handleGetSupplyHistory($userId, $_GET);
+    }
+    // ==================== PHASE 1 NEW ENDPOINTS ====================
+    // Warehouses
+    elseif (preg_match('#/api\.php/api/warehouses$#', $path) || preg_match('#/api/warehouses$#', $path)) {
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetWarehouses')) {
+                handleGetWarehouses($userId);
+            } else {
+                sendError(500, "Warehouse function not found");
+            }
+        }
+        if ($requestMethod === 'POST') {
+            if (function_exists('handleCreateWarehouse')) {
+                handleCreateWarehouse($userId, $input);
+            } else {
+                sendError(500, "Create warehouse function not found");
+            }
+        }
+    } elseif (preg_match('#/api\.php/api/warehouses/(\d+)$#', $path, $matches) || preg_match('#/api/warehouses/(\d+)$#', $path, $matches)) {
+        $warehouseId = $matches[1];
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetWarehouse')) {
+                handleGetWarehouse($userId, $warehouseId);
+            } else {
+                sendError(500, "Get warehouse function not found");
+            }
+        }
+        if ($requestMethod === 'PUT') {
+            if (function_exists('handleUpdateWarehouse')) {
+                handleUpdateWarehouse($userId, $warehouseId, $input);
+            } else {
+                sendError(500, "Update warehouse function not found");
+            }
+        }
+        if ($requestMethod === 'DELETE') {
+            if (function_exists('handleDeleteWarehouse')) {
+                handleDeleteWarehouse($userId, $warehouseId);
+            } else {
+                sendError(500, "Delete warehouse function not found");
+            }
+        }
+    }
+    // Suppliers
+    elseif (preg_match('#/api\.php/api/suppliers$#', $path) || preg_match('#/api/suppliers$#', $path)) {
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetSuppliers')) {
+                handleGetSuppliers($userId);
+            } else {
+                sendError(500, "Suppliers function not found");
+            }
+        }
+        if ($requestMethod === 'POST') {
+            if (function_exists('handleCreateSupplier')) {
+                handleCreateSupplier($userId, $input);
+            } else {
+                sendError(500, "Create supplier function not found");
+            }
+        }
+    } elseif (preg_match('#/api\.php/api/suppliers/(\d+)$#', $path, $matches) || preg_match('#/api/suppliers/(\d+)$#', $path, $matches)) {
+        $supplierId = $matches[1];
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetSupplier')) {
+                handleGetSupplier($userId, $supplierId);
+            } else {
+                sendError(500, "Get supplier function not found");
+            }
+        }
+        if ($requestMethod === 'PUT') {
+            if (function_exists('handleUpdateSupplier')) {
+                handleUpdateSupplier($userId, $supplierId, $input);
+            } else {
+                sendError(500, "Update supplier function not found");
+            }
+        }
+        if ($requestMethod === 'DELETE') {
+            if (function_exists('handleDeleteSupplier')) {
+                handleDeleteSupplier($userId, $supplierId);
+            } else {
+                sendError(500, "Delete supplier function not found");
+            }
+        }
+    }
+    // Customers
+    elseif (preg_match('#/api\.php/api/customers$#', $path) || preg_match('#/api/customers$#', $path)) {
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetCustomers')) {
+                handleGetCustomers($userId);
+            } else {
+                sendError(500, "Customers function not found");
+            }
+        }
+        if ($requestMethod === 'POST') {
+            if (function_exists('handleCreateCustomer')) {
+                handleCreateCustomer($userId, $input);
+            } else {
+                sendError(500, "Create customer function not found");
+            }
+        }
+    } elseif (preg_match('#/api\.php/api/customers/(\d+)$#', $path, $matches) || preg_match('#/api/customers/(\d+)$#', $path, $matches)) {
+        $customerId = $matches[1];
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetCustomer')) {
+                handleGetCustomer($userId, $customerId);
+            } else {
+                sendError(500, "Get customer function not found");
+            }
+        }
+        if ($requestMethod === 'PUT') {
+            if (function_exists('handleUpdateCustomer')) {
+                handleUpdateCustomer($userId, $customerId, $input);
+            } else {
+                sendError(500, "Update customer function not found");
+            }
+        }
+        if ($requestMethod === 'DELETE') {
+            if (function_exists('handleDeleteCustomer')) {
+                handleDeleteCustomer($userId, $customerId);
+            } else {
+                sendError(500, "Delete customer function not found");
+            }
+        }
+    }
+    // Brokers
+    elseif (preg_match('#/api\.php/api/brokers$#', $path) || preg_match('#/api/brokers$#', $path)) {
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetBrokers')) {
+                handleGetBrokers($userId);
+            } else {
+                sendError(500, "Brokers function not found");
+            }
+        }
+        if ($requestMethod === 'POST') {
+            if (function_exists('handleCreateBroker')) {
+                handleCreateBroker($userId, $input);
+            } else {
+                sendError(500, "Create broker function not found");
+            }
+        }
+    } elseif (preg_match('#/api\.php/api/brokers/(\d+)$#', $path, $matches) || preg_match('#/api/brokers/(\d+)$#', $path, $matches)) {
+        $brokerId = $matches[1];
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetBroker')) {
+                handleGetBroker($userId, $brokerId);
+            } else {
+                sendError(500, "Get broker function not found");
+            }
+        }
+        if ($requestMethod === 'PUT') {
+            if (function_exists('handleUpdateBroker')) {
+                handleUpdateBroker($userId, $brokerId, $input);
+            } else {
+                sendError(500, "Update broker function not found");
+            }
+        }
+        if ($requestMethod === 'DELETE') {
+            if (function_exists('handleDeleteBroker')) {
+                handleDeleteBroker($userId, $brokerId);
+            } else {
+                sendError(500, "Delete broker function not found");
+            }
+        }
+    }
+    // Drivers
+    elseif (preg_match('#/api\.php/api/drivers$#', $path) || preg_match('#/api/drivers$#', $path)) {
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetDrivers')) {
+                handleGetDrivers($userId);
+            } else {
+                sendError(500, "Drivers function not found");
+            }
+        }
+        if ($requestMethod === 'POST') {
+            if (function_exists('handleCreateDriver')) {
+                handleCreateDriver($userId, $input);
+            } else {
+                sendError(500, "Create driver function not found");
+            }
+        }
+    } elseif (preg_match('#/api\.php/api/drivers/(\d+)$#', $path, $matches) || preg_match('#/api/drivers/(\d+)$#', $path, $matches)) {
+        $driverId = $matches[1];
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetDriver')) {
+                handleGetDriver($userId, $driverId);
+            } else {
+                sendError(500, "Get driver function not found");
+            }
+        }
+        if ($requestMethod === 'PUT') {
+            if (function_exists('handleUpdateDriver')) {
+                handleUpdateDriver($userId, $driverId, $input);
+            } else {
+                sendError(500, "Update driver function not found");
+            }
+        }
+        if ($requestMethod === 'DELETE') {
+            if (function_exists('handleDeleteDriver')) {
+                handleDeleteDriver($userId, $driverId);
+            } else {
+                sendError(500, "Delete driver function not found");
+            }
+        }
+    }
+    // Sales Orders
+    elseif (preg_match('#/api\.php/api/orders$#', $path) || preg_match('#/api/orders$#', $path)) {
+        if ($requestMethod === 'GET') handleGetOrders($userId);
+        if ($requestMethod === 'POST') handleCreateOrder($userId, $input);
+    } elseif (preg_match('#/api\.php/api/orders/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/orders/([a-f0-9\-]+)$#', $path, $matches)) {
+        $orderId = $matches[1];
+        if ($requestMethod === 'GET') handleGetOrder($userId, $orderId);
+        if ($requestMethod === 'PUT') handleUpdateOrder($userId, $orderId, $input);
+        if ($requestMethod === 'DELETE') handleDeleteOrder($userId, $orderId);
+    } elseif (preg_match('#/api\.php/api/orders/([a-f0-9\-]+)/confirm$#', $path, $matches) || preg_match('#/api/orders/([a-f0-9\-]+)/confirm$#', $path, $matches)) {
+        $orderId = $matches[1];
+        if ($requestMethod === 'POST') handleConfirmOrder($userId, $orderId);
+    } elseif (preg_match('#/api\.php/api/orders/([a-f0-9\-]+)/convert_to_invoice$#', $path, $matches) || preg_match('#/api/orders/([a-f0-9\-]+)/convert_to_invoice$#', $path, $matches)) {
+        $orderId = $matches[1];
+        if ($requestMethod === 'POST') handleConvertOrderToInvoice($userId, $orderId);
+    }
+    // Challans
+    elseif (preg_match('#/api\.php/api/challans$#', $path) || preg_match('#/api/challans$#', $path)) {
+        if ($requestMethod === 'GET') handleGetChallans($userId);
+        if ($requestMethod === 'POST') handleCreateChallan($userId, $input);
+    } elseif (preg_match('#/api\.php/api/challans/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/challans/([a-f0-9\-]+)$#', $path, $matches)) {
+        $challanId = $matches[1];
+        if ($requestMethod === 'GET') handleGetChallan($userId, $challanId);
+        if ($requestMethod === 'PUT') handleUpdateChallan($userId, $challanId, $input);
+        if ($requestMethod === 'DELETE') handleDeleteChallan($userId, $challanId);
+    } elseif (preg_match('#/api\.php/api/challans/([a-f0-9\-]+)/status$#', $path, $matches) || preg_match('#/api/challans/([a-f0-9\-]+)/status$#', $path, $matches)) {
+        $challanId = $matches[1];
+        if ($requestMethod === 'POST') handleUpdateChallanStatus($userId, $challanId, $input);
+    }
+    // Returns
+    elseif (preg_match('#/api\.php/api/returns$#', $path) || preg_match('#/api/returns$#', $path)) {
+        if ($requestMethod === 'GET') handleGetReturns($userId);
+        if ($requestMethod === 'POST') handleCreateReturn($userId, $input);
+    } elseif (preg_match('#/api\.php/api/returns/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/returns/([a-f0-9\-]+)$#', $path, $matches)) {
+        $returnId = $matches[1];
+        if ($requestMethod === 'GET') handleGetReturn($userId, $returnId);
+    }
+    // Stock Adjustments
+    elseif (preg_match('#/api\.php/api/stock/adjust$#', $path) || preg_match('#/api/stock/adjust$#', $path)) {
+        if ($requestMethod === 'POST') handleStockAdjustment($userId, $input);
+    } elseif (preg_match('#/api\.php/api/stock/adjustments$#', $path) || preg_match('#/api/stock/adjustments$#', $path)) {
+        if ($requestMethod === 'GET') handleGetStockAdjustments($userId, $_GET);
+    }
+    // Expenses
+    elseif (preg_match('#/api\.php/api/expenses$#', $path) || preg_match('#/api/expenses$#', $path)) {
+        if ($requestMethod === 'GET') handleGetExpenses($userId, $_GET);
+        if ($requestMethod === 'POST') handleCreateExpense($userId, $input);
+    } elseif (preg_match('#/api\.php/api/expenses/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/expenses/([a-f0-9\-]+)$#', $path, $matches)) {
+        $expenseId = $matches[1];
+        if ($requestMethod === 'DELETE') handleDeleteExpense($userId, $expenseId);
+    }
+    // Price History
+    elseif (preg_match('#/api\.php/api/products/([a-f0-9\-]+)/price_history$#', $path, $matches) || preg_match('#/api/products/([a-f0-9\-]+)/price_history$#', $path, $matches)) {
+        $productId = $matches[1];
+        if ($requestMethod === 'GET') handleGetPriceHistory($userId, $productId);
+    }
+    // New Reports
+    elseif (preg_match('#/api\.php/api/reports/stock_movement#', $path) || preg_match('#/api/reports/stock_movement#', $path)) {
+        handleStockMovementReport($userId, $_GET);
+    } elseif (preg_match('#/api\.php/api/reports/warehouse_stock#', $path) || preg_match('#/api/reports/warehouse_stock#', $path)) {
+        handleWarehouseStockReport($userId, $_GET);
+    } elseif (preg_match('#/api\.php/api/reports/expenses#', $path) || preg_match('#/api/reports/expenses#', $path)) {
+        handleExpenseReport($userId, $_GET);
+    } elseif (preg_match('#/api\.php/api/reports/commissions#', $path) || preg_match('#/api/reports/commissions#', $path)) {
+        handleCommissionReport($userId, $_GET);
+    } elseif (preg_match('#/api\.php/api/reports/challans#', $path) || preg_match('#/api/reports/challans#', $path)) {
+        handleChallanReport($userId, $_GET);
+    } elseif (preg_match('#/api\.php/api/reports/pnl#', $path) || preg_match('#/api/reports/pnl#', $path)) {
+        handlePnLReport($userId, $_GET);
     } else {
         sendError(404, "Endpoint not found");
     }
+
 }
+
+// ==================== INCLUDE PHASE 1 HANDLERS ====================
+header('X-Debug-Step: 4-Including-Handlers');
+if (file_exists(__DIR__ . '/phase1_handlers.php')) {
+    require_once __DIR__ . '/phase1_handlers.php';
+    header('X-Debug-Phase1-Handlers: Loaded');
+} else {
+    header('X-Debug-Phase1-Handlers: Not-Found');
+}
+
+if (file_exists(__DIR__ . '/phase1_handlers_part2.php')) {
+    require_once __DIR__ . '/phase1_handlers_part2.php';
+    header('X-Debug-Phase1-Handlers-Part2: Loaded');
+} else {
+    header('X-Debug-Phase1-Handlers-Part2: Not-Found');
+}
+
+if (file_exists(__DIR__ . '/phase1_handlers_part3.php')) {
+    require_once __DIR__ . '/phase1_handlers_part3.php';
+    header('X-Debug-Phase1-Handlers-Part3: Loaded');
+} else {
+    header('X-Debug-Phase1-Handlers-Part3: Not-Found');
+}
+header('X-Debug-Step: 5-Handlers-Included');
 
 // ==================== MARKET SUPPLY ====================
 
@@ -709,53 +1053,117 @@ function handleCreateProduct($userId, $input) {
     $pdo = getDBConnection();
     $id = generateUUID();
     
-    $stmt = $pdo->prepare("
-        INSERT INTO products (id, user_id, name, sku, selling_price, cost_price, stock, min_stock, category_id, packing_unit, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-    ");
-    
-    $stmt->execute([
-        $id,
-        $userId,
-        $input['name'],
-        $input['sku'],
-        $input['selling_price'],
-        $input['cost_price'],
-        $input['initial_stock'],
-        $input['min_stock'],
-        $input['category_id'],
-        $input['packing_unit']
-    ]);
-    
-    $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
-    $stmt->execute([$id]);
-    sendSuccess($stmt->fetch(), 201);
+    try {
+        $pdo->beginTransaction();
+        
+        $stmt = $pdo->prepare("
+            INSERT INTO products (id, user_id, name, sku, selling_price, cost_price, stock, min_stock, category_id, packing_unit, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        ");
+        
+        $initialStock = $input['initial_stock'] ?? 0;
+        
+        $stmt->execute([
+            $id,
+            $userId,
+            $input['name'],
+            $input['sku'],
+            $input['selling_price'],
+            $input['cost_price'],
+            $initialStock,
+            $input['min_stock'],
+            $input['category_id'],
+            $input['packing_unit']
+        ]);
+        
+        // Create stock_levels entry for default warehouse if initial stock > 0
+        if ($initialStock > 0) {
+            $warehouseId = $input['warehouse_id'] ?? 1; // Default to main warehouse
+            $stmt = $pdo->prepare("
+                INSERT INTO stock_levels (product_id, warehouse_id, quantity, reserved_quantity, updated_at)
+                VALUES (?, ?, ?, 0, NOW())
+                ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)
+            ");
+            $stmt->execute([$id, $warehouseId, $initialStock]);
+        }
+        
+        $pdo->commit();
+        
+        $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
+        $stmt->execute([$id]);
+        sendSuccess($stmt->fetch(), 201);
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        sendError(500, "Failed to create product: " . $e->getMessage());
+    }
 }
 
 function handleUpdateProduct($userId, $productId, $input) {
     $pdo = getDBConnection();
     
-    $stmt = $pdo->prepare("
-        UPDATE products 
-        SET name = ?, sku = ?, selling_price = ?, cost_price = ?, min_stock = ?, category_id = ?, packing_unit = ?
-        WHERE id = ? AND user_id = ?
-    ");
-    
-    $stmt->execute([
-        $input['name'],
-        $input['sku'],
-        $input['selling_price'],
-        $input['cost_price'],
-        $input['min_stock'],
-        $input['category_id'],
-        $input['packing_unit'],
-        $productId,
-        $userId
-    ]);
-    
-    $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
-    $stmt->execute([$productId]);
-    sendSuccess($stmt->fetch());
+    try {
+        $pdo->beginTransaction();
+        
+        // Get current prices for price history
+        $stmt = $pdo->prepare("SELECT cost_price, selling_price FROM products WHERE id = ? AND user_id = ?");
+        $stmt->execute([$productId, $userId]);
+        $currentProduct = $stmt->fetch();
+        
+        if (!$currentProduct) {
+            throw new Exception("Product not found");
+        }
+        
+        $oldCostPrice = $currentProduct['cost_price'];
+        $oldSellingPrice = $currentProduct['selling_price'];
+        $newCostPrice = $input['cost_price'];
+        $newSellingPrice = $input['selling_price'];
+        
+        // Update product
+        $stmt = $pdo->prepare("
+            UPDATE products 
+            SET name = ?, sku = ?, selling_price = ?, cost_price = ?, min_stock = ?, category_id = ?, packing_unit = ?
+            WHERE id = ? AND user_id = ?
+        ");
+        
+        $stmt->execute([
+            $input['name'],
+            $input['sku'],
+            $newSellingPrice,
+            $newCostPrice,
+            $input['min_stock'],
+            $input['category_id'],
+            $input['packing_unit'],
+            $productId,
+            $userId
+        ]);
+        
+        // Log price changes to price_history if prices changed
+        if ($oldCostPrice != $newCostPrice || $oldSellingPrice != $newSellingPrice) {
+            $stmt = $pdo->prepare("
+                INSERT INTO price_history (product_id, old_cost_price, new_cost_price, old_selling_price, new_selling_price, changed_by, changed_at)
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $stmt->execute([
+                $productId,
+                $oldCostPrice,
+                $newCostPrice,
+                $oldSellingPrice,
+                $newSellingPrice,
+                $userId
+            ]);
+        }
+        
+        $pdo->commit();
+        
+        $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
+        $stmt->execute([$productId]);
+        sendSuccess($stmt->fetch());
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        sendError(500, "Failed to update product: " . $e->getMessage());
+    }
 }
 
 function handleDeleteProduct($userId, $productId) {

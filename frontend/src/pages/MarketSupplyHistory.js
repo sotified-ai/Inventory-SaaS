@@ -9,7 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Label } from "@/components/ui/label";
 import { Eye, CalendarIcon, Filter, Printer } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
 import { format } from "date-fns";
 import { productsAPI, supplyAPI, isUsingMySQL } from "@/lib/api";
 import { SYSTEM_NAME } from "@/App";
@@ -37,7 +37,7 @@ const MarketSupplyHistory = () => {
       setLoading(false);
     }
   }, []);
-  
+
   useEffect(() => {
     if (dateFrom !== null || dateTo !== null) {
       fetchSupplies()
@@ -62,25 +62,25 @@ const MarketSupplyHistory = () => {
 
   const fetchSupplies = async () => {
     const usingMySQL = isUsingMySQL();
-    
+
     // Set loading to true when starting fetch
     setLoading(true);
     setError(null);
-    
+
     try {
       if (usingMySQL) {
         // Format dates for API (YYYY-MM-DD)
         let fromDateStr = null;
         let toDateStr = null;
-        
+
         if (dateFrom) {
           fromDateStr = dateFrom.toISOString().split('T')[0];
         }
-        
+
         if (dateTo) {
           toDateStr = dateTo.toISOString().split('T')[0];
         }
-        
+
         const data = await supplyAPI.getHistory(fromDateStr, toDateStr);
         // Ensure data is an array
         const suppliesArray = Array.isArray(data) ? data : [];
@@ -98,7 +98,7 @@ const MarketSupplyHistory = () => {
       setLoading(false);
     }
   };
-  
+
   // Helper functions for GMT+5 (Pakistan Standard Time) timezone handling
   const getStartOfDayPKT = (date) => {
     // Get start of day in PKT (00:00:00 PKT)
@@ -109,7 +109,7 @@ const MarketSupplyHistory = () => {
     utcDate.setHours(utcDate.getHours() - 5);
     return utcDate;
   };
-  
+
   const getEndOfDayPKT = (date) => {
     // Get end of day in PKT (23:59:59 PKT)
     const pktDate = new Date(date);
@@ -124,7 +124,7 @@ const MarketSupplyHistory = () => {
     setSelectedSupply(supply);
     setIsDialogOpen(true);
   };
-  
+
   const printSupplyFromDialog = () => {
     // Create a new window for printing
     const printWindow = window.open('', '_blank');
@@ -132,9 +132,9 @@ const MarketSupplyHistory = () => {
       toast.error('Please allow popups to print supply sheets');
       return;
     }
-    
+
     const supply = selectedSupply;
-    
+
     // Helper function to format date as dd/mm/yyyy
     const formatDate = (dateString) => {
       const date = new Date(dateString);
@@ -143,7 +143,7 @@ const MarketSupplyHistory = () => {
       const year = date.getFullYear();
       return `${day}/${month}/${year}`;
     };
-    
+
     const printContent = `
       <!DOCTYPE html>
       <html>
@@ -215,14 +215,14 @@ const MarketSupplyHistory = () => {
         </head>
         <body>
           <div class="print-timestamp">
-            Printed on: ${new Date().toLocaleString('en-GB', { 
-              day: '2-digit', 
-              month: '2-digit', 
-              year: 'numeric', 
-              hour: '2-digit', 
-              minute: '2-digit',
-              hour12: true
-            })}
+            Printed on: ${new Date().toLocaleString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    })}
           </div>
           <div class="header">
             <div>
@@ -245,17 +245,17 @@ const MarketSupplyHistory = () => {
               </tr>
             </thead>
             <tbody>
-              ${supply.items.map(item => {
-                const product = products.find(p => p.id === item.product_id);
-                return `
+              ${(supply.items || []).map(item => {
+      const product = products.find(p => p.id === item.product_id);
+      return `
                   <tr>
                     <td>${product ? product.name : 'Unknown Product'}</td>
                     <td class="text-right">${item.quantity}</td>
                     <td class="text-right">${item.return_quantity || 0}</td>
-                    <td class="text-right">${parseFloat(item.ctns || 0).toFixed(2)}</td>
+                    <td class="text-right">${formatNumber(item.ctns || 0)}</td>
                   </tr>
                 `;
-              }).join('')}
+    }).join('')}
             </tbody>
           </table>
           
@@ -266,11 +266,11 @@ const MarketSupplyHistory = () => {
             </div>
             <div style="display: flex; justify-content: space-between; padding: 8px 0;">
               <span>Total CTNS:</span>
-              <span>${parseFloat(supply.total_ctns || 0).toFixed(2)}</span>
+              <span>${formatNumber(supply.total_ctns || 0)}</span>
             </div>
             <div style="display: flex; justify-content: space-between; padding: 8px 0;">
               <span>Total Amount:</span>
-              <span>PKR ${(supply.total_quantity || 0).toFixed(2)}</span>
+              <span>PKR ${formatNumber(supply.total_quantity || 0)}</span>
             </div>
           </div>
           
@@ -285,33 +285,33 @@ const MarketSupplyHistory = () => {
         </body>
       </html>
     `;
-    
+
     printWindow.document.write(printContent);
     printWindow.document.close();
   };
-  
+
   const clearFilters = () => {
     setDateFrom(null);
     setDateTo(null);
   };
-  
+
   const formatDateTimePKT = (dateString) => {
     try {
       if (!dateString) return '';
-      
+
       // Handle the datetime format from the API (YYYY-MM-DD HH:MM:SS)
       if (dateString.includes(' ') && dateString.includes('-') && dateString.includes(':')) {
         // Split the date and time parts
         const [datePart, timePart] = dateString.split(' ');
         const [year, month, day] = datePart.split('-');
         const [hour, minute, second] = timePart.split(':');
-        
+
         // Create a Date object in PKT timezone (GMT+5)
         const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-        
+
         // Adjust for PKT timezone (GMT+5)
         date.setHours(date.getHours() + 5);
-        
+
         // Display in PKT timezone
         return date.toLocaleString('en-PK', {
           timeZone: 'Asia/Karachi',
@@ -324,7 +324,7 @@ const MarketSupplyHistory = () => {
           hour12: true
         });
       }
-      
+
       // Fallback for other date formats
       const date = new Date(dateString);
       // Display in PKT timezone
@@ -343,11 +343,11 @@ const MarketSupplyHistory = () => {
       return 'Invalid Date';
     }
   };
-  
+
   const formatDate = (dateString) => {
     try {
       if (!dateString) return '';
-      
+
       // Handle the datetime format from the API (YYYY-MM-DD HH:MM:SS)
       if (dateString.includes(' ') && dateString.includes('-') && dateString.includes(':')) {
         // Split the date and time parts
@@ -355,7 +355,7 @@ const MarketSupplyHistory = () => {
         const [year, month, day] = datePart.split('-');
         return `${day}/${month}/${year}`;
       }
-      
+
       // Fallback for other date formats
       const date = new Date(dateString);
       const day = String(date.getDate()).padStart(2, '0');
@@ -367,12 +367,12 @@ const MarketSupplyHistory = () => {
       return 'Invalid Date';
     }
   };
-  
+
   // Error boundary effect
   useEffect(() => {
     console.log('Component rendered with state:', { loading, supplies, products, error });
   }, [loading, supplies, products, error]);
-  
+
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -380,7 +380,7 @@ const MarketSupplyHistory = () => {
       </div>
     );
   }
-  
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -512,7 +512,7 @@ const MarketSupplyHistory = () => {
                         {supply.items ? supply.items.length : 0}
                       </TableCell>
                       <TableCell className="text-right font-semibold">
-                        PKR {parseFloat(supply.total_quantity || 0).toFixed(2)}
+                        PKR {formatNumber(supply.total_quantity || 0)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end space-x-2">
@@ -572,16 +572,16 @@ const MarketSupplyHistory = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedSupply.items.map((item, idx) => {
+                    {(selectedSupply.items || []).map((item, idx) => {
                       const product = products.find(p => p.id === item.product_id);
-                      return (
+                      return formatNumber(
                         <tr key={idx} className="border-b" data-testid={`detail-item-${idx}`}>
                           <td className="py-2 px-2">
                             {product ? product.name : 'Unknown Product'}
                           </td>
                           <td className="text-right py-2 px-2">{item.quantity}</td>
                           <td className="text-right py-2 px-2">{item.return_quantity || 0}</td>
-                          <td className="text-right py-2 px-2">{parseFloat(item.ctns || 0).toFixed(2)}</td>
+                          <td className="text-right py-2 px-2">{parseFloat(item.ctns || 0)}</td>
                         </tr>
                       );
                     })}
@@ -594,7 +594,7 @@ const MarketSupplyHistory = () => {
                   <div className="w-64">
                     <div className="flex justify-between py-2">
                       <span className="text-gray-600">Total Amount:</span>
-                      <span className="font-medium">PKR {parseFloat(selectedSupply.total_quantity || 0).toFixed(2)}</span>
+                      <span className="font-medium">PKR {formatNumber(selectedSupply.total_quantity || 0)}</span>
                     </div>
                     <div className="flex justify-between py-2">
                       <span className="text-gray-600">Total Quantity:</span>
@@ -602,7 +602,7 @@ const MarketSupplyHistory = () => {
                     </div>
                     <div className="flex justify-between py-2 border-t font-bold text-lg">
                       <span>Total CTNS:</span>
-                      <span>{parseFloat(selectedSupply.total_ctns || 0).toFixed(2)}</span>
+                      <span>{formatNumber(selectedSupply.total_ctns || 0)}</span>
                     </div>
                   </div>
                 </div>
