@@ -295,15 +295,32 @@ const SalesHistory = () => {
               color: #666;
               font-size: 14px;
             }
+            .print-timestamp {
+              position: absolute;
+              top: 20px;
+              right: 20px;
+              font-size: 12px;
+              color: #666;
+            }
             @media print {
               body { padding: 20px; }
             }
           </style>
         </head>
         <body>
+          <div class="print-timestamp">
+            Printed on: ${new Date().toLocaleString('en-GB', { 
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric', 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: true
+            })}
+          </div>
           <div class="header">
             <div>
-              <div class="invoice-title">{SYSTEM_NAME}</div>
+              <div class="invoice-title">${SYSTEM_NAME}</div>
               <div class="invoice-info">
                 <div style="font-size: 24px; margin: 10px 0;">INVOICE</div>
                 <div>Invoice #: ${invoice.invoice_number}</div>

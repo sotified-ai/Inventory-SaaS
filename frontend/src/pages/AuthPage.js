@@ -10,19 +10,34 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Package } from "lucide-react";
 
-// Use the same API base configuration as in api.js
-const API_BASE = (
-  process.env.REACT_APP_API_BASE ||
-  (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : `https://realgiveaways.com/api.php/api`)
-);
+// Use same logic as lib/api.js to resolve base
+function resolveApiBase() {
+  try {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname || '';
+      if (host.includes('realgiveaways.com')) {
+        return '/api.php/api';
+      }
+      // Local development: use local PHP backend
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return 'http://localhost:8000/api.php/api';
+      }
+    }
+  } catch (_) {}
+  const base = (
+    process.env.REACT_APP_API_BASE ||
+    (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : `https://realgiveaways.com/api.php/api`)
+  );
+  return base;
+}
 
-// Ensure API_BASE ends with /api for proper routing
-const BASE_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`;
+const API_BASE = resolveApiBase();
+const BASE_URL = API_BASE;
 
 const AuthPage = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [useMySQL, setUseMySQL] = useState(true);
 
   const handleMySQLLogin = async () => {
@@ -36,12 +51,20 @@ const AuthPage = () => {
         },
         body: JSON.stringify({ username, password }),
       });
-
-      // Clone the response before reading it to avoid "Response body is already used" error
-      const responseClone = response.clone();
       
-      if (!response.ok) {
-        const errorText = await responseClone.text();
+      // Handle response properly to avoid "Response body is already used" error
+      const responseClone = response.clone();
+      const responseText = await response.text();
+      
+      // Create a new response object with the consumed body for app use
+      const appResponse = new Response(responseText, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers
+      });
+
+      if (!appResponse.ok) {
+        const errorText = await appResponse.text();
         let errorMessage = "Login failed";
         try {
           const error = JSON.parse(errorText);
@@ -52,7 +75,14 @@ const AuthPage = () => {
         throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      // Read the body once and parse safely
+      const text = await appResponse.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (_) {
+        data = { detail: text };
+      }
       localStorage.setItem("mysql-token", data.token);
       localStorage.setItem("mysql-username", data.username);
       localStorage.setItem("skip-login", "true");

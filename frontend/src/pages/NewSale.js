@@ -147,7 +147,10 @@ const NewSale = () => {
   };
   
   const populateCartFromInvoice = (invoice) => {
-    const cartItems = invoice.items.map((item) => {
+    // Ensure the array exists, even if the backend returns null
+    const items = invoice.items || [];
+    
+    const cartItems = items.map((item) => {
       const productId = item.product_id || item.productId;
       const product = products.find((p) => p.id === productId);
       
@@ -349,9 +352,21 @@ const NewSale = () => {
       return;
     }
 
+    // Validate customer name is present
     if (!customerName.trim()) {
       toast.error("Customer name is required");
       return;
+    }
+
+    // Validate each item has sufficient stock
+    for (const item of cart) {
+      const product = products.find((p) => p.id === item.product.id);
+      if (!product) continue;
+
+      if (item.quantity > product.stock) {
+        toast.error(`Insufficient stock for ${product.name}. Available: ${product.stock}, Required: ${item.quantity}`);
+        return;
+      }
     }
 
     try {
@@ -597,7 +612,152 @@ const NewSale = () => {
   };
 
   const printInvoice = () => {
-    window.print();
+    const printContent = document.querySelector('.print-area').innerHTML;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow popups to print invoices');
+      return;
+    }
+    
+    const styles = `
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          padding: 40px;
+          max-width: 800px;
+          margin: 0 auto;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 30px;
+          border-bottom: 2px solid #333;
+          padding-bottom: 20px;
+        }
+        .invoice-title {
+          font-size: 32px;
+          font-weight: bold;
+          color: #333;
+        }
+        .invoice-info {
+          font-size: 14px;
+          color: #666;
+          line-height: 1.6;
+        }
+        .customer-details {
+          margin: 20px 0;
+          padding: 15px;
+          background-color: #f9f9f9;
+          border-left: 3px solid #333;
+        }
+        .customer-details h3 {
+          margin: 0 0 10px 0;
+          font-size: 16px;
+          color: #333;
+        }
+        .customer-details p {
+          margin: 5px 0;
+          font-size: 14px;
+          color: #666;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 20px 0;
+        }
+        th {
+          background-color: #f5f5f5;
+          padding: 12px;
+          text-align: left;
+          border-bottom: 2px solid #ddd;
+          font-weight: 600;
+        }
+        td {
+          padding: 10px 12px;
+          border-bottom: 1px solid #eee;
+        }
+        .text-right {
+          text-align: right;
+        }
+        .totals {
+          margin-top: 30px;
+          float: right;
+          width: 300px;
+        }
+        .totals-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 8px 0;
+        }
+        .totals-row.discount {
+          color: #d32f2f;
+        }
+        .totals-row.total {
+          border-top: 2px solid #333;
+          font-weight: bold;
+          font-size: 18px;
+          margin-top: 10px;
+          padding-top: 10px;
+        }
+        .footer {
+          clear: both;
+          text-align: center;
+          margin-top: 60px;
+          padding-top: 20px;
+          border-top: 1px solid #ddd;
+          color: #666;
+          font-size: 14px;
+        }
+        .print-timestamp {
+          position: absolute;
+          top: 20px;
+          right: 20px;
+          font-size: 12px;
+          color: #666;
+        }
+        .no-print {
+          display: none;
+        }
+        @media print {
+          body { padding: 20px; }
+          .no-print { display: none !important; }
+        }
+      </style>
+    `;
+    
+    const fullContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Invoice</title>
+          ${styles}
+        </head>
+        <body>
+          <div class="print-timestamp">
+            Printed on: ${new Date().toLocaleString('en-GB', { 
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric', 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: true
+            })}
+          </div>
+          ${printContent}
+          <script>
+            window.onload = function() {
+              window.print();
+              window.onafterprint = function() {
+                window.close();
+              };
+            };
+          </script>
+        </body>
+      </html>
+    `;
+    
+    printWindow.document.write(fullContent);
+    printWindow.document.close();
   };
 
   const startNewSale = () => {
@@ -623,6 +783,24 @@ const NewSale = () => {
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const year = date.getFullYear();
       return `${day}/${month}/${year}`;
+    };
+    
+    // Helper function to format date and time for printing
+    const formatPrintDateTime = () => {
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, '0');
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const year = now.getFullYear();
+      
+      // Format time in 12-hour format with AM/PM
+      let hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12; // the hour '0' should be '12'
+      const formattedHours = String(hours).padStart(2, '0');
+      
+      return `${day}/${month}/${year} ${formattedHours}:${minutes} ${ampm}`;
     };
     
     return (
@@ -706,6 +884,9 @@ const NewSale = () => {
               <div className="text-right">
                 <p className="text-sm text-gray-600">From:</p>
                 <p className="font-semibold">{auth.currentUser?.email}</p>
+                <div className="print-timestamp no-print" style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
+                  Printed on: {formatPrintDateTime()}
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -743,7 +924,7 @@ const NewSale = () => {
                   </tbody>
                 </table>
               </div>
-
+              
               <div className="border-t pt-4">
                 <div className="flex justify-end space-y-2">
                   <div className="w-64">
@@ -764,7 +945,7 @@ const NewSale = () => {
                   </div>
                 </div>
               </div>
-
+              
               <div className="text-center text-sm text-gray-600 mt-8 pt-8 border-t">
                 <p>Thank you for your business!</p>
                 {invoice.deliveryman_name && (
@@ -894,7 +1075,7 @@ const NewSale = () => {
                             </div>
                             <div className="text-xs text-gray-600">
                               SKU: {product.sku} | PKR {(product.selling_price ?? 0).toFixed(2)} | 
-                              {product.stock === 0 ? 
+                              {Number(product.stock) === 0 ? 
                                 <span className="text-red-500 font-bold">Out of Stock</span> : 
                                 <span>Stock: {product.stock}</span>
                               }

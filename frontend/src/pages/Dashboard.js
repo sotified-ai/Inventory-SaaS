@@ -49,7 +49,7 @@ const Dashboard = () => {
     } catch (error) {
       console.error("Failed to fetch products:", error);
       // Redirect to login if unauthorized
-      if (error.message.includes("Authorization header missing") || error.message.includes("401")) {
+      if (error.message.includes("Authorization header missing") || error.message.includes("401") || error.message.includes("Invalid token")) {
         localStorage.removeItem("mysql-token");
         localStorage.removeItem("skip-login");
         window.location.href = "/auth";
@@ -150,7 +150,7 @@ const Dashboard = () => {
     } catch (error) {
       console.error("Failed to fetch stats:", error);
       // Redirect to login if unauthorized
-      if (error.message.includes("Authorization header missing") || error.message.includes("401")) {
+      if (error.message.includes("Authorization header missing") || error.message.includes("401") || error.message.includes("Invalid token")) {
         localStorage.removeItem("mysql-token");
         localStorage.removeItem("skip-login");
         window.location.href = "/auth";
@@ -179,7 +179,7 @@ const Dashboard = () => {
     } catch (error) {
       console.error("Failed to fetch itemized sales:", error);
       // Redirect to login if unauthorized
-      if (error.message.includes("Authorization header missing") || error.message.includes("401")) {
+      if (error.message.includes("Authorization header missing") || error.message.includes("401") || error.message.includes("Invalid token")) {
         localStorage.removeItem("mysql-token");
         localStorage.removeItem("skip-login");
         window.location.href = "/auth";
@@ -274,19 +274,19 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        <Card className="glass-effect hover-lift border-0" data-testid="stat-solid-profit">
+        <Card className="glass-effect hover-lift border-0" data-testid="stat-net-profit">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">
-              Solid Profit
+              Net Profit
             </CardTitle>
             <TrendingUp className="h-5 w-5 text-emerald-500" />
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-emerald-600">
-              PKR {stats?.solid_profit?.toFixed(2) || '0.00'}
+              PKR {stats?.net_profit?.toFixed(2) || '0.00'}
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Selling Price - Cost Price
+              Revenue - COGS
             </p>
           </CardContent>
         </Card>

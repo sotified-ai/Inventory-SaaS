@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const CombinedRestockSlip = ({ reportData, dateRange, customStartDate, customEndDate }) => {
+const CombinedRestockSlip = ({ reportData, dateRange }) => {
   const [storeInchargeSignature, setStoreInchargeSignature] = useState("");
   const [deliverymanSignature, setDeliverymanSignature] = useState("");
 
@@ -23,10 +23,10 @@ const CombinedRestockSlip = ({ reportData, dateRange, customStartDate, customEnd
   };
 
   const formatDateRange = () => {
-    if (dateRange === "custom" && customStartDate && customEndDate) {
-      return `${customStartDate} to ${customEndDate}`;
+    if (dateRange && dateRange.from && dateRange.to) {
+      return `${formatDate(dateRange.from)} to ${formatDate(dateRange.to)}`;
     }
-    return dateRange.replace("_", " ");
+    return "Invalid date range";
   };
 
   if (!reportData) {
