@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { restockAPI } from "@/lib/api";
-import { PackagePlus, Printer, Edit, Trash2, Calendar as CalendarIcon } from "lucide-react";
+import { PackagePlus, Edit, Trash2, Calendar as CalendarIcon } from "lucide-react";
 import CombinedRestockSlip from "@/components/CombinedRestockSlip";
 import RestockCart from "@/components/RestockCart";
 import { Calendar } from "@/components/ui/calendar";
@@ -103,37 +103,28 @@ const RestockTransactions = () => {
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
             {viewMode === "transactions" ? "Restock Transactions" : "Combined Restock Report"}
           </h1>
-          <p className="text-gray-600">
-            {viewMode === "transactions"
-              ? "View all restock transactions"
-              : "View consolidated restock report"}
-          </p>
         </div>
         <div className="flex space-x-2">
           <Button
-            onClick={() => navigate("/products")}
-            variant="outline"
+            variant={viewMode === "transactions" ? "default" : "outline"}
+            onClick={() => setViewMode("transactions")}
+          >
+            Transactions
+          </Button>
+          <Button
+            variant={viewMode === "report" ? "default" : "outline"}
+            onClick={() => setViewMode("report")}
+          >
+            Combined Report
+          </Button>
+          <Button
+            onClick={() => navigate("/restock")}
             className="flex items-center space-x-2"
           >
             <PackagePlus className="w-4 h-4" />
-            <span>Back to Products</span>
+            <span>New Restock</span>
           </Button>
         </div>
-      </div>
-
-      <div className="flex space-x-2 no-print">
-        <Button
-          variant={viewMode === "transactions" ? "default" : "outline"}
-          onClick={() => setViewMode("transactions")}
-        >
-          Transactions
-        </Button>
-        <Button
-          variant={viewMode === "report" ? "default" : "outline"}
-          onClick={() => setViewMode("report")}
-        >
-          Combined Report
-        </Button>
       </div>
 
       {viewMode === "report" && (

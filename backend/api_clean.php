@@ -1,10 +1,33 @@
 <?php
+// HANDLING CORS AT THE VERY TOP
+// This ensures headers are sent even if the script crashes later
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$allowed_domains = ['http://localhost:3000', 'http://localhost:3001', 'https://realgiveaways.com', 'http://realgiveaways.com'];
+
+if (in_array($origin, $allowed_domains)) {
+    header("Access-Control-Allow-Origin: $origin");
+    header('Access-Control-Allow-Credentials: true');
+} else {
+    // Default to allowing all for development convenience, but be careful in production
+    header('Access-Control-Allow-Origin: *');
+}
+
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin');
+header('Access-Control-Max-Age: 86400');
+
+// Handle preflight OPTIONS request immediately
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
 header('X-Debug-Step: 1-Start'); // Immediately check if the script starts
 
-// Add debugging information
-header('X-Debug-Request-Method: ' . ($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'));
-header('X-Debug-Request-URI: ' . ($_SERVER['REQUEST_URI'] ?? 'UNKNOWN'));
-header('X-Debug-Path: ' . (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? 'UNKNOWN'));
+// Add debugging information - REMOVED FOR PRODUCTION
+// header('X-Debug-Request-Method: ' . ($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'));
+// header('X-Debug-Request-URI: ' . ($_SERVER['REQUEST_URI'] ?? 'UNKNOWN'));
+// header('X-Debug-Path: ' . (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? 'UNKNOWN'));
 
 // Extension checks are deferred until after routing is determined so
 // that the login route can function without pdo_mysql/json if needed.
@@ -14,8 +37,6 @@ $env = function($key, $default = null) {
     $val = getenv($key);
     return ($val === false || $val === '') ? $default : $val;
 };
-
-
 
 // LOCAL DATABASE CONFIGURATION
 // define('DB_NAME', $env('DB_NAME', 'inv'));
@@ -28,26 +49,21 @@ $env = function($key, $default = null) {
 // define('CORS_ORIGINS', $env('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001'));
 
 // PRODUCTION DATABASE CONFIGURATION (COMMENTED OUT)
-define('DB_NAME', $env('DB_NAME', '****'));
-define('DB_USER', $env('DB_USER', '****'));
-define('DB_PASS', $env('DB_PASSWORD', '!***'));
+define('DB_NAME', $env('DB_NAME', 'realgiveaways_inventory'));
+define('DB_USER', $env('DB_USER', 'realgiveaways_inventory'));
+define('DB_PASS', $env('DB_PASSWORD', '!nv3T0rY'));
 define('DB_HOST', $env('DB_HOST', 'localhost'));
 define('DB_PORT', (int)$env('DB_PORT', 3306));
 define('DB_ENGINE', $env('DB_ENGINE', 'mysql'));
-define('APP_SECRET', $env('APP_SECRET', '****-saas-****-key-change-in-****'));
+define('APP_SECRET', $env('APP_SECRET', 'inventory-saas-secret-key-change-in-production'));
 define('CORS_ORIGINS', $env('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001'));
-
-header('X-Debug-Step: 2-Env-Loaded');
 
 // Set a global exception handler to ensure JSON output for all errors
 set_exception_handler(function($exception) {
     // Ensure headers are set to JSON
     if (!headers_sent()) {
         header('Content-Type: application/json');
-        header('X-Debug-Exception: Yes');
-        header('X-Debug-Exception-Message: ' . $exception->getMessage());
-        header('X-Debug-Exception-File: ' . $exception->getFile());
-        header('X-Debug-Exception-Line: ' . $exception->getLine());
+        // Removed debug headers for production
     }
     http_response_code(500);
     
@@ -67,28 +83,6 @@ set_exception_handler(function($exception) {
     exit();
 });
 
-
-
-// PRODUCTION UPDATE: Enhanced CORS with dynamic origin support
-// IMPORTANT: CORS headers MUST be set before Content-Type
-$origin = $_SERVER['HTTP_ORIGIN'] ?? null;
-// Use environment variable CORS_ORIGINS if present, otherwise defaults from config.php
-$corsEnv = getenv('CORS_ORIGINS') ?: (defined('CORS_ORIGINS') ? CORS_ORIGINS : 'https://realgiveaways.com,http://realgiveaways.com');
-$allowedOrigins = array_map('trim', explode(',', $corsEnv));
-// Always allow localhost dev origins for testing regardless of environment
-$allowedOrigins[] = 'http://localhost:3000';
-
-if ($origin && in_array($origin, $allowedOrigins, true)) {
-    header("Access-Control-Allow-Origin: $origin");
-    header('Access-Control-Allow-Credentials: true');
-} else {
-    header('Access-Control-Allow-Origin: *');
-}
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin');
-header('Access-Control-Expose-Headers: Content-Length, Content-Type, X-Debug-Step, X-Debug-Input-Raw'); // Expose debug header
-header('Access-Control-Max-Age: 86400');
-
 header('Content-Type: application/json');
 
 // Handle preflight OPTIONS request
@@ -98,79 +92,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // ==================== INCLUDE PHASE 1 HANDLERS ====================
-header('X-Debug-Step: 4-Including-Handlers');
+// Removed debug headers for production
 if (file_exists(__DIR__ . '/phase1_handlers.php')) {
     require_once __DIR__ . '/phase1_handlers.php';
-    header('X-Debug-Phase1-Handlers: Loaded');
-    // Add debug to check if function exists after inclusion
-    if (function_exists('handleGetWarehouses')) {
-        header('X-Debug-Warehouse-Function: Found');
-    } else {
-        header('X-Debug-Warehouse-Function: Missing');
-    }
+    // Removed debug headers for production
 } else {
-    header('X-Debug-Phase1-Handlers: Not-Found');
+    // Removed debug headers for production
 }
 
 if (file_exists(__DIR__ . '/phase1_handlers_part2.php')) {
     require_once __DIR__ . '/phase1_handlers_part2.php';
-    header('X-Debug-Phase1-Handlers-Part2: Loaded');
+    // Removed debug headers for production
 } else {
-    header('X-Debug-Phase1-Handlers-Part2: Not-Found');
+    // Removed debug headers for production
 }
 
 if (file_exists(__DIR__ . '/phase1_handlers_part3.php')) {
     require_once __DIR__ . '/phase1_handlers_part3.php';
-    header('X-Debug-Phase1-Handlers-Part3: Loaded');
+    // Removed debug headers for production
 } else {
-    header('X-Debug-Phase1-Handlers-Part3: Not-Found');
+    // Removed debug headers for production
 }
-header('X-Debug-Step: 5-Handlers-Included');
+// Removed debug headers for production
 
 // Database Connection
 function getDBConnection($allowFail = false) {
-    header('X-Debug-Step: 3-Get-DB-Connection'); // Check if DB connection function is called
-    header('X-Debug-DB-Host: ' . DB_HOST);
-    header('X-Debug-DB-Name: ' . DB_NAME);
-    header('X-Debug-DB-User: ' . DB_USER);
-    header('X-Debug-DB-Pass: ' . DB_PASS); // This might expose sensitive information in logs
-    header('X-Debug-DB-Pass-Length: ' . strlen(DB_PASS));
+    // Removed debug headers for production
     
     try {
         $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-        header('X-Debug-DSN: ' . $dsn);
+        // Removed debug headers for production
         
         $pdo = new PDO($dsn, DB_USER, DB_PASS, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false
         ]);
-        header('X-Debug-Step: 3.1-PDO-Success'); // Check if PDO object is created
+        // Removed debug headers for production
         return $pdo;
     } catch (PDOException $e) {
         if ($allowFail) {
             // For login flow, allow fallback when DB connection fails
-            header('X-Debug-Step: 3.2-PDO-Failed-Allowed');
-            header('X-Debug-DB-Error: ' . $e->getMessage());
+            // Removed debug headers for production
             return null;
         } else {
             // Ensure this error is always JSON
             if (!headers_sent()) {
                 header('Content-Type: application/json');
             }
-            header('X-Debug-Step: 3.2-PDO-Failed'); // Check if PDO object is created
-            header('X-Debug-DB-Error: ' . $e->getMessage());
+            // Removed debug headers for production
             
             http_response_code(500);
             echo json_encode([
                 'error' => 'Database connection failed',
-                'message' => $e->getMessage(),
-                'debug_step' => '3.2-PDO-Failed'
+                'message' => $e->getMessage()
+                // Removed debug headers for production
             ]);
             exit();
         }
     }
 }
+
+
+
+
+
 
 // Helper: check if soft-delete column exists on restock_transactions
 function hasSoftDelete($pdo) {
@@ -187,6 +173,8 @@ function hasSoftDelete($pdo) {
     $checked = true;
     return $exists;
 }
+
+
 // Authentication Helper
 function authenticateRequest() {
     $headers = getAllHeaders();
@@ -378,7 +366,7 @@ $loginPatternMatch = preg_match('#/api/login$#', $path) ||
                      preg_match('#/api\.php/api/login$#', $path);
 
 // Add specific check for the exact path in your curl request
-$exactPathMatch = $path === '/api.php/api/login' || $path === '/api/login';
+$exactPathMatch = $path === '/api.php/api/login';
 header('X-Debug-Exact-Path-Match: ' . ($exactPathMatch ? 'YES' : 'NO'));
 
 header('X-Debug-Login-Pattern-Match: ' . ($loginPatternMatch ? 'YES' : 'NO'));
@@ -410,6 +398,30 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
     } else {
         header('X-Debug-Warehouse-Function-Routing: Missing');
     }
+    
+    // ==================== INCLUDE PHASE 1 HANDLERS ====================
+    header('X-Debug-Step: 4-Including-Handlers');
+    if (file_exists(__DIR__ . '/phase1_handlers.php')) {
+        require_once __DIR__ . '/phase1_handlers.php';
+        header('X-Debug-Phase1-Handlers: Loaded');
+    } else {
+        header('X-Debug-Phase1-Handlers: Not-Found');
+    }
+
+    if (file_exists(__DIR__ . '/phase1_handlers_part2.php')) {
+        require_once __DIR__ . '/phase1_handlers_part2.php';
+        header('X-Debug-Phase1-Handlers-Part2: Loaded');
+    } else {
+        header('X-Debug-Phase1-Handlers-Part2: Not-Found');
+    }
+
+    if (file_exists(__DIR__ . '/phase1_handlers_part3.php')) {
+        require_once __DIR__ . '/phase1_handlers_part3.php';
+        header('X-Debug-Phase1-Handlers-Part3: Loaded');
+    } else {
+        header('X-Debug-Phase1-Handlers-Part3: Not-Found');
+    }
+    header('X-Debug-Step: 5-Handlers-Included');
     
     // Products
     if (preg_match('#/api\.php/api/products$#', $path) || preg_match('#/api/products$#', $path)) {
@@ -530,7 +542,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create supplier function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/suppliers/(\d+)$#', $path, $matches) || preg_match('#/api/suppliers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/suppliers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/suppliers/([a-f0-9\-]+)$#', $path, $matches)) {
         $supplierId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetSupplier')) {
@@ -570,7 +582,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create customer function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/customers/(\d+)$#', $path, $matches) || preg_match('#/api/customers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/customers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/customers/([a-f0-9\-]+)$#', $path, $matches)) {
         $customerId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetCustomer')) {
@@ -610,7 +622,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create broker function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/brokers/(\d+)$#', $path, $matches) || preg_match('#/api/brokers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/brokers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/brokers/([a-f0-9\-]+)$#', $path, $matches)) {
         $brokerId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetBroker')) {
@@ -650,7 +662,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create driver function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/drivers/(\d+)$#', $path, $matches) || preg_match('#/api/drivers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/drivers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/drivers/([a-f0-9\-]+)$#', $path, $matches)) {
         $driverId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetDriver')) {
@@ -986,35 +998,7 @@ function handleLogin($input) {
     }
 
     // DB-backed authentication (aligns with server.py)
-    $pdo = getDBConnection(true); // Allow fail for login
-    if (!$pdo) {
-        // Fallback to file-based auth if DB connection fails
-        $usersFile = __DIR__ . '/users.json';
-        if (!file_exists($usersFile)) {
-            sendError(500, "No users configured and database unavailable");
-        }
-        
-        $users = json_decode(file_get_contents($usersFile), true);
-        if (!isset($users[$username])) {
-            sendError(401, "Invalid credentials");
-        }
-        
-        $storedPassword = $users[$username]['password'];
-        if (!verifyUserPassword($password, $storedPassword)) {
-            sendError(401, "Invalid credentials");
-        }
-        
-        $token = generateToken($username);
-        sendSuccess([
-            'token' => $token,
-            'username' => $username,
-            'access_token' => $token,
-            'token_type' => 'bearer',
-            'user_id' => "mysql-" . $username
-        ]);
-        return;
-    }
-    
+    $pdo = getDBConnection();
     try {
         $stmt = $pdo->prepare("SELECT id, username, password_hash, role, created_at FROM auth_users WHERE username = ?");
         $stmt->execute([$username]);
@@ -1051,8 +1035,9 @@ function handleRegister($input) {
     }
     
     try {
-        $stmt = $pdo->prepare("INSERT INTO auth_users (username, password_hash) VALUES (?, ?)");
-        $stmt->execute([$username, hashPassword($password)]);
+        $id = generateUUID();
+        $stmt = $pdo->prepare("INSERT INTO auth_users (id, username, password_hash, created_at) VALUES (?, ?, ?, NOW())");
+        $stmt->execute([$id, $username, hashPassword($password)]);
         
         $token = generateToken($username);
         sendSuccess([
@@ -1064,7 +1049,7 @@ function handleRegister($input) {
         if ($e->getCode() == 23000) {
             sendError(400, "Username already exists");
         }
-        sendError(500, "Registration failed");
+        sendError(500, "Registration failed: " . $e->getMessage());
     }
 }
 
@@ -1129,7 +1114,7 @@ function handleCreateProduct($userId, $input) {
 
 function handleUpdateProduct($userId, $productId, $input) {
     $pdo = getDBConnection();
-
+    
     try {
         $pdo->beginTransaction();
         
@@ -1233,10 +1218,10 @@ function handleCreateCategory($userId, $input) {
     $pdo = getDBConnection();
     
     try {
-        $stmt = $pdo->prepare("INSERT INTO categories (name, user_id) VALUES (?, ?)");
-        $stmt->execute([$input['name'], $userId]);
+        $id = generateUUID();
+        $stmt = $pdo->prepare("INSERT INTO categories (id, name, user_id, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())");
+        $stmt->execute([$id, $input['name'], $userId]);
         
-        $id = $pdo->lastInsertId();
         $stmt = $pdo->prepare("SELECT * FROM categories WHERE id = ?");
         $stmt->execute([$id]);
         sendSuccess($stmt->fetch(), 201);
@@ -1340,13 +1325,15 @@ function handleCreateSale($userId, $input) {
         // NOTE: item['total'] is already calculated in frontend using ONLY paid quantity
         // Bonus quantity is stored but does NOT contribute to revenue
         foreach ($input['items'] as $item) {
+            $itemId = generateUUID();
             $stmt = $pdo->prepare("
-                INSERT INTO invoice_items (invoice_id, product_id, product_name, sku, quantity, 
+                INSERT INTO invoice_items (id, invoice_id, product_id, product_name, sku, quantity, 
                     price_per_unit, unit_price, discount, total_line_price, total, bonus_quantity, returned_quantity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
+                $itemId,
                 $invoiceId,
                 $item['product_id'],
                 $item['product_name'],
@@ -1450,13 +1437,15 @@ function handleUpdateSale($userId, $invoiceId, $input) {
         // Insert new items
         // NOTE: item['total'] already calculated in frontend using ONLY paid quantity
         foreach ($input['items'] as $item) {
+            $itemId = generateUUID();
             $stmt = $pdo->prepare("
-                INSERT INTO invoice_items (invoice_id, product_id, product_name, sku, quantity,
+                INSERT INTO invoice_items (id, invoice_id, product_id, product_name, sku, quantity,
                     price_per_unit, unit_price, discount, total_line_price, total, bonus_quantity, returned_quantity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
+                $itemId,
                 $invoiceId,
                 $item['product_id'],
                 $item['product_name'],
@@ -1473,7 +1462,17 @@ function handleUpdateSale($userId, $invoiceId, $input) {
         }
         
         $pdo->commit();
-        sendSuccess(['message' => 'Sale updated']);
+        
+        // Return updated invoice
+        $stmt = $pdo->prepare("SELECT * FROM invoices WHERE id = ?");
+        $stmt->execute([$invoiceId]);
+        $invoice = $stmt->fetch();
+        
+        $stmt = $pdo->prepare("SELECT * FROM invoice_items WHERE invoice_id = ?");
+        $stmt->execute([$invoiceId]);
+        $invoice['items'] = $stmt->fetchAll();
+        
+        sendSuccess($invoice);
         
     } catch (Exception $e) {
         $pdo->rollBack();
@@ -1576,54 +1575,89 @@ function handleSalesHistory($userId, $params) {
 }
 
 function handleDashboardStats($userId) {
-    $pdo = getDBConnection();
-    
-    // Get product stats
-    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM products WHERE user_id = ?");
-    $stmt->execute([$userId]);
-    $totalProducts = $stmt->fetch()['total'];
-    
-    $stmt = $pdo->prepare("SELECT COUNT(*) as low_stock FROM products WHERE user_id = ? AND stock <= min_stock");
-    $stmt->execute([$userId]);
-    $lowStock = $stmt->fetch()['low_stock'];
-    
-    // Get sales stats
-    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM invoices WHERE user_id = ? AND is_deleted = 0");
-    $stmt->execute([$userId]);
-    $totalSales = $stmt->fetch()['total'];
-    
-    $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_total_amount), 0) as revenue FROM invoices WHERE user_id = ? AND is_deleted = 0");
-    $stmt->execute([$userId]);
-    $revenue = $stmt->fetch()['revenue'] ?? 0;
-    
-    $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_discount_amount), 0) as discount FROM invoices WHERE user_id = ? AND is_deleted = 0");
-    $stmt->execute([$userId]);
-    $totalDiscount = $stmt->fetch()['discount'] ?? 0;
-    
-    // Calculate Net Profit (Revenue - COGS)
-    // COGS = SUM(quantity * cost_price) for all sold items
-    $stmt = $pdo->prepare("
-        SELECT COALESCE(SUM(ii.quantity * IFNULL(p.cost_price, 0)), 0) as cogs
-        FROM invoice_items ii
-        JOIN invoices i ON ii.invoice_id = i.id
-        JOIN products p ON ii.product_id = p.id
-        WHERE i.user_id = ? AND i.is_deleted = 0
-    ");
-    $stmt->execute([$userId]);
-    $cogsResult = $stmt->fetch();
-    $cogs = $cogsResult['cogs'] ?? 0;
-    
-    $netProfit = $revenue - $cogs;
-    
-    sendSuccess([
-        'total_products' => (int)$totalProducts,
-        'low_stock_count' => (int)$lowStock,
-        'total_sales' => (int)$totalSales,
-        'total_revenue' => (float)$revenue,
-        'total_discount' => (float)$totalDiscount,
-        'total_cogs' => (float)$cogs,
-        'net_profit' => (float)$netProfit
-    ]);
+    try {
+        $pdo = getDBConnection();
+        
+        // Get product stats
+        try {
+            $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM products WHERE user_id = ?");
+            $stmt->execute([$userId]);
+            $totalProducts = $stmt->fetch()['total'];
+        } catch (Exception $e) { $totalProducts = 0; }
+        
+        try {
+            $stmt = $pdo->prepare("SELECT COUNT(*) as low_stock FROM products WHERE user_id = ? AND stock <= min_stock");
+            $stmt->execute([$userId]);
+            $lowStock = $stmt->fetch()['low_stock'];
+        } catch (Exception $e) { $lowStock = 0; }
+        
+        // Get sales stats
+        try {
+            $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM invoices WHERE user_id = ? AND is_deleted = 0");
+            $stmt->execute([$userId]);
+            $totalSales = $stmt->fetch()['total'];
+        } catch (Exception $e) { $totalSales = 0; }
+        
+        try {
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_total_amount), 0) as revenue FROM invoices WHERE user_id = ? AND is_deleted = 0");
+            $stmt->execute([$userId]);
+            $revenue = $stmt->fetch()['revenue'] ?? 0;
+        } catch (Exception $e) { $revenue = 0; }
+        
+        try {
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_discount_amount), 0) as discount FROM invoices WHERE user_id = ? AND is_deleted = 0");
+            $stmt->execute([$userId]);
+            $totalDiscount = $stmt->fetch()['discount'] ?? 0;
+        } catch (Exception $e) { $totalDiscount = 0; }
+
+        // Get restock stats
+        try {
+            $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM restock_transactions WHERE user_id = ? AND (deleted_at IS NULL)");
+            $stmt->execute([$userId]);
+            $totalRestocks = $stmt->fetch()['total'];
+        } catch (Exception $e) { $totalRestocks = 0; }
+        
+        // Calculate Net Profit (Revenue - COGS)
+        // COGS = SUM(quantity * cost_price) for all sold items
+        try {
+            $stmt = $pdo->prepare("
+                SELECT COALESCE(SUM(ii.quantity * IFNULL(p.cost_price, 0)), 0) as cogs
+                FROM invoice_items ii
+                JOIN invoices i ON ii.invoice_id = i.id
+                JOIN products p ON ii.product_id = p.id
+                WHERE i.user_id = ? AND i.is_deleted = 0
+            ");
+            $stmt->execute([$userId]);
+            $cogsResult = $stmt->fetch();
+            $cogs = $cogsResult['cogs'] ?? 0;
+        } catch (Exception $e) { $cogs = 0; }
+        
+        $netProfit = $revenue - $cogs;
+        
+        sendSuccess([
+            'total_products' => (int)$totalProducts,
+            'low_stock_count' => (int)$lowStock,
+            'total_sales' => (int)$totalSales,
+            'total_restocks' => (int)$totalRestocks,
+            'total_revenue' => (float)$revenue,
+            'total_discount' => (float)$totalDiscount,
+            'total_cogs' => (float)$cogs,
+            'net_profit' => (float)$netProfit
+        ]);
+    } catch (Exception $e) {
+        // Fallback if DB connection fails completely
+        sendSuccess([
+            'total_products' => 0,
+            'low_stock_count' => 0,
+            'total_sales' => 0,
+            'total_restocks' => 0,
+            'total_revenue' => 0,
+            'total_discount' => 0,
+            'total_cogs' => 0,
+            'net_profit' => 0,
+            'error' => 'Failed to load stats: ' . $e->getMessage()
+        ]);
+    }
 }
 
 function handleItemizedSales($userId, $params) {
@@ -1643,573 +1677,712 @@ function handleItemizedSales($userId, $params) {
             $startDate = date('Y-m-d 00:00:00');
             break;
         case 'yesterday':
+            // Start of yesterday in PKT (00:00:00) to end of yesterday in PKT (23:59:59)
             $startDate = date('Y-m-d 00:00:00', strtotime('-1 day'));
             $endDate = date('Y-m-d 23:59:59', strtotime('-1 day'));
             break;
-        case 'last_7_days':
-        case 'week':
-            $startDate = date('Y-m-d 00:00:00', strtotime('-7 days'));
+        case 'this_week':
+            // Start of this week in PKT (Monday 00:00:00) to end of this week in PKT (Sunday 23:59:59)
+            $startDate = date('Y-m-d 00:00:00', strtotime('this week'));
+            $endDate = date('Y-m-d 23:59:59', strtotime('this week'));
             break;
-        case 'month':
-            $startDate = date('Y-m-d 00:00:00', strtotime('-30 days'));
+        case 'last_week':
+            // Start of last week in PKT (Monday 00:00:00) to end of last week in PKT (Sunday 23:59:59)
+            $startDate = date('Y-m-d 00:00:00', strtotime('last week'));
+            $endDate = date('Y-m-d 23:59:59', strtotime('last week'));
             break;
-        case 'year':
-            $startDate = date('Y-m-d 00:00:00', strtotime('-365 days'));
+        case 'this_month':
+            // Start of this month in PKT (1st day 00:00:00) to end of this month in PKT (last day 23:59:59)
+            $startDate = date('Y-m-01 00:00:00');
+            $endDate = date('Y-m-t 23:59:59');
+            break;
+        case 'last_month':
+            // Start of last month in PKT (1st day 00:00:00) to end of last month in PKT (last day 23:59:59)
+            $startDate = date('Y-m-01 00:00:00', strtotime('last month'));
+            $endDate = date('Y-m-t 23:59:59', strtotime('last month'));
+            break;
+        case 'this_year':
+            // Start of this year in PKT (1st day 00:00:00) to end of this year in PKT (last day 23:59:59)
+            $startDate = date('Y-01-01 00:00:00');
+            $endDate = date('Y-12-31 23:59:59');
+            break;
+        case 'last_year':
+            // Start of last year in PKT (1st day 00:00:00) to end of last year in PKT (last day 23:59:59)
+            $startDate = date('Y-01-01 00:00:00', strtotime('last year'));
+            $endDate = date('Y-12-31 23:59:59', strtotime('last year'));
+            break;
+        default:
+            // Default to today
+            $startDate = date('Y-m-d 00:00:00');
             break;
     }
-    
-    $query = "  
-        SELECT 
-            p.id as product_id,
-            p.name as product_name,
-            SUM(ii.quantity + COALESCE(ii.bonus_quantity, 0)) as total_quantity_sold,
-            ii.unit_price,
-            SUM(ii.quantity * ii.unit_price) as total_line_revenue
-        FROM invoice_items ii
-        JOIN invoices i ON ii.invoice_id = i.id
-        JOIN products p ON ii.product_id = p.id
-        WHERE i.user_id = ? AND i.is_deleted = 0
-    ";
-    
-    $queryParams = [$userId];
-    
-    if ($startDate) {
-        $query .= " AND i.sale_timestamp >= ?";
-        $queryParams[] = $startDate;
-    }
-    
-    $query .= " AND i.sale_timestamp <= ?";
-    $queryParams[] = $endDate;
-    
-    $query .= " GROUP BY p.id, p.name, ii.unit_price ORDER BY total_quantity_sold DESC";
-    
-    $stmt = $pdo->prepare($query);
-    $stmt->execute($queryParams);
-    $items = $stmt->fetchAll();
-    
-    // Calculate totals
-    $totalQuantity = 0;
-    $totalRevenue = 0;
-    foreach ($items as $item) {
-        $totalQuantity += $item['total_quantity_sold'];
-        $totalRevenue += $item['total_line_revenue'];
-    }
-    
-    sendSuccess([
-        'range' => $range,
-        'items' => $items,
-        'total_items' => count($items),
-        'total_quantity' => (int)$totalQuantity,
-        'total_revenue' => (float)$totalRevenue
-    ]);
-}
-
-// ==================== INVOICES ====================
-
-function handleGetInvoices($userId) {
-    $pdo = getDBConnection();
-    
-    $stmt = $pdo->prepare("
-        SELECT * FROM invoices 
-        WHERE user_id = ? AND is_deleted = 0 
-        ORDER BY sale_timestamp DESC
-    ");
-    $stmt->execute([$userId]);
-    $invoices = $stmt->fetchAll();
-    
-    // Attach items to each invoice
-    foreach ($invoices as &$invoice) {
-        $stmt = $pdo->prepare("SELECT * FROM invoice_items WHERE invoice_id = ?");
-        $stmt->execute([$invoice['id']]);
-        $invoice['items'] = $stmt->fetchAll();
-    }
-    
-    sendSuccess($invoices);
-}
-
-function handleGetInvoice($userId, $invoiceId) {
-    $pdo = getDBConnection();
-    
-    $stmt = $pdo->prepare("
-        SELECT * FROM invoices 
-        WHERE id = ? AND user_id = ? AND is_deleted = 0
-    ");
-    $stmt->execute([$invoiceId, $userId]);
-    $invoice = $stmt->fetch();
-    
-    if (!$invoice) {
-        sendError(404, "Invoice not found");
-    }
-    
-    $stmt = $pdo->prepare("SELECT * FROM invoice_items WHERE invoice_id = ?");
-    $stmt->execute([$invoiceId]);
-    $invoice['items'] = $stmt->fetchAll();
-    
-    sendSuccess($invoice);
-}
-
-// ==================== RESTOCK ====================
-
-function handleCreateRestock($userId, $input) {
-    $pdo = getDBConnection();
     
     try {
-        $pdo->beginTransaction();
-        
-        // Generate a unique restock number
-        do {
-            $restockId = generateUUID();
-            $restockNumber = 'RESTOCK-' . time() . '-' . substr($restockId, 0, 8);
-            $stmt = $pdo->prepare("SELECT id FROM restock_transactions WHERE restock_number = ?");
-            $stmt->execute([$restockNumber]);
-            $exists = $stmt->fetch();
-        } while ($exists);
-        
-        $bookerName = $input['booker_name'] ?? null;
-        $deliverymanName = $input['deliveryman_name'] ?? null;
-        $items = $input['items'] ?? [];
-        
-        if (empty($items)) {
-            throw new Exception("No items provided for restock");
-        }
-        
-        $totalRestockValue = 0;
-        $totalItemsRestocked = 0;
-        
-        // Process each item in the restock
-        foreach ($items as $item) {
-            $productId = $item['product_id'];
-            $quantity = $item['quantity'];
-            $costPerUnit = $item['cost_per_unit'] ?? 0;
-            
-            if ($quantity <= 0) {
-                throw new Exception("Quantity must be greater than 0");
-            }
-            
-            // Get current product info
-            $stmt = $pdo->prepare("SELECT name, packing_unit FROM products WHERE id = ? AND user_id = ?");
-            $stmt->execute([$productId, $userId]);
-            $product = $stmt->fetch();
-            
-            if (!$product) {
-                throw new Exception("Product not found: $productId");
-            }
-            
-            // Calculate item value
-            $itemValue = $costPerUnit * $quantity;
-            $totalRestockValue += $itemValue;
-            $totalItemsRestocked += $quantity;
-            
-            // Store product details for the restock item
-            $itemName = $product['name'];
-            $packingUnit = $product['packing_unit'] ?? null;
-        }
-        
-        // Insert restock transaction header
+        // Get total revenue
         $stmt = $pdo->prepare("
-            INSERT INTO restock_transactions 
-            (id, user_id, restock_number, restock_timestamp, total_restock_value, total_items_restocked, booker_name, deliveryman_name)
-            VALUES (?, ?, ?, NOW(), ?, ?, ?, ?)
+            SELECT COALESCE(SUM(total), 0) as revenue
+            FROM invoices
+            WHERE user_id = ? AND is_deleted = 0 AND created_at BETWEEN ? AND ?
         ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $revenueResult = $stmt->fetch();
+        $revenue = $revenueResult['revenue'] ?? 0;
         
-        $stmt->execute([
-            $restockId,
-            $userId,
-            $restockNumber,
-            $totalRestockValue,
-            $totalItemsRestocked,
-            $bookerName,
-            $deliverymanName
-        ]);
-        
-        // Insert restock items (detail records)
-        foreach ($items as $item) {
-            $itemId = generateUUID();
-            $productId = $item['product_id'];
-            $quantity = $item['quantity'];
-            $costPerUnit = $item['cost_per_unit'] ?? 0;
-            $totalCost = $costPerUnit * $quantity;
-            
-            // Get product details again for this item
-            $stmt = $pdo->prepare("SELECT name, packing_unit FROM products WHERE id = ? AND user_id = ?");
-            $stmt->execute([$productId, $userId]);
-            $product = $stmt->fetch();
-            
-            $itemName = $product['name'];
-            $packingUnit = $product['packing_unit'] ?? null;
-            
-            // Insert restock item detail
-            $stmt = $pdo->prepare("
-                INSERT INTO restock_items 
-                (id, restock_id, product_id, product_name, packing_unit, quantity, cost_per_unit, total_cost)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            
-            $stmt->execute([
-                $itemId,
-                $restockId,
-                $productId,
-                $itemName,
-                $packingUnit,
-                $quantity,
-                $costPerUnit,
-                $totalCost
-            ]);
-        }
-        
-        // Update product stock for all items
-        foreach ($items as $item) {
-            $productId = $item['product_id'];
-            $quantity = $item['quantity'];
-            
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock + ? WHERE id = ? AND user_id = ?");
-            $stmt->execute([$quantity, $productId, $userId]);
-        }
-        
-        $pdo->commit();
-        
-        // Return created restock transaction with items
+        // Get total discount
         $stmt = $pdo->prepare("
-            SELECT rt.*, 
-                   JSON_ARRAYAGG(
-                     JSON_OBJECT(
-                       'id', ri.id,
-                       'product_id', ri.product_id,
-                       'product_name', ri.product_name,
-                       'packing_unit', ri.packing_unit,
-                       'quantity', ri.quantity,
-                       'cost_per_unit', ri.cost_per_unit,
-                       'total_cost', ri.total_cost
-                     )
-                   ) as items
-        FROM restock_transactions rt
-        LEFT JOIN restock_items ri ON rt.id = ri.restock_id
-        WHERE rt.id = ?
-        GROUP BY rt.id
+            SELECT COALESCE(SUM(discount), 0) as discount
+            FROM invoices
+            WHERE user_id = ? AND is_deleted = 0 AND created_at BETWEEN ? AND ?
         ");
-        $stmt->execute([$restockId]);
-        $restock = $stmt->fetch();
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $discountResult = $stmt->fetch();
+        $totalDiscount = $discountResult['discount'] ?? 0;
         
-        // Parse the items JSON
-        $restock['items'] = json_decode($restock['items'], true);
-        
-        sendSuccess($restock, 201);
-        
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        sendError(400, $e->getMessage());
-    }
-}
-
-function handleGetRestockTransactions($userId) {
-    $pdo = getDBConnection();
-    
-    $stmt = $pdo->prepare("
-        SELECT rt.*, 
-               JSON_ARRAYAGG(
-                 JSON_OBJECT(
-                   'id', ri.id,
-                   'product_id', ri.product_id,
-                   'product_name', ri.product_name,
-                   'packing_unit', ri.packing_unit,
-                   'quantity', ri.quantity,
-                   'cost_per_unit', ri.cost_per_unit,
-                   'total_cost', ri.total_cost
-                 )
-               ) as items
-        FROM restock_transactions rt
-        LEFT JOIN restock_items ri ON rt.id = ri.restock_id
-        WHERE rt.user_id = ?
-        GROUP BY rt.id
-        ORDER BY rt.restock_timestamp DESC
-    ");
-    $stmt->execute([$userId]);
-    $restocks = $stmt->fetchAll();
-    
-    // Parse items JSON for each restock
-    foreach ($restocks as &$restock) {
-        $restock['items'] = json_decode($restock['items'], true);
-    }
-    
-    sendSuccess($restocks);
-}
-
-function handleGetRestockTransaction($userId, $restockId) {
-    $pdo = getDBConnection();
-    
-    $stmt = $pdo->prepare("
-        SELECT rt.*, 
-               JSON_ARRAYAGG(
-                 JSON_OBJECT(
-                   'id', ri.id,
-                   'product_id', ri.product_id,
-                   'product_name', ri.product_name,
-                   'packing_unit', ri.packing_unit,
-                   'quantity', ri.quantity,
-                   'cost_per_unit', ri.cost_per_unit,
-                   'total_cost', ri.total_cost
-                 )
-               ) as items
-        FROM restock_transactions rt
-        LEFT JOIN restock_items ri ON rt.id = ri.restock_id
-        WHERE rt.id = ? AND rt.user_id = ?
-        GROUP BY rt.id
-    ");
-    $stmt->execute([$restockId, $userId]);
-    $restock = $stmt->fetch();
-    
-    if (!$restock) {
-        sendError(404, "Restock transaction not found");
-    }
-    
-    // Parse items JSON
-    $restock['items'] = json_decode($restock['items'], true);
-    
-    sendSuccess($restock);
-}
-
-function handleUpdateRestock($userId, $restockId, $input) {
-    $pdo = getDBConnection();
-    
-    try {
-        $pdo->beginTransaction();
-        
-        // Get original restock items
-        $stmt = $pdo->prepare("SELECT * FROM restock_items WHERE restock_id = ?");
-        $stmt->execute([$restockId]);
-        $originalItems = $stmt->fetchAll();
-        
-        // Reverse original stock additions
-        foreach ($originalItems as $item) {
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
-            $stmt->execute([$item['quantity'], $item['product_id']]);
-        }
-        
-        // Delete old items
-        $stmt = $pdo->prepare("DELETE FROM restock_items WHERE restock_id = ?");
-        $stmt->execute([$restockId]);
-        
-        $totalRestockValue = 0;
-        $totalItemsRestocked = 0;
-        
-        // Process each item in the restock
-        foreach ($input['items'] as $item) {
-            $productId = $item['product_id'];
-            $quantity = $item['quantity'];
-            $costPerUnit = $item['cost_per_unit'] ?? 0;
-            
-            if ($quantity <= 0) {
-                throw new Exception("Quantity must be greater than 0");
-            }
-            
-            // Get current product info
-            $stmt = $pdo->prepare("SELECT name, packing_unit FROM products WHERE id = ? AND user_id = ?");
-            $stmt->execute([$productId, $userId]);
-            $product = $stmt->fetch();
-            
-            if (!$product) {
-                throw new Exception("Product not found: $productId");
-            }
-            
-            // Calculate item value
-            $itemValue = $costPerUnit * $quantity;
-            $totalRestockValue += $itemValue;
-            $totalItemsRestocked += $quantity;
-            
-            // Store product details for the restock item
-            $itemName = $product['name'];
-            $packingUnit = $product['packing_unit'] ?? null;
-
-            // Insert restock item detail
-            $stmt = $pdo->prepare("
-                INSERT INTO restock_items 
-                (id, restock_id, product_id, product_name, packing_unit, quantity, cost_per_unit, total_cost)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            
-            $stmt->execute([
-                generateUUID(),
-                $restockId,
-                $productId,
-                $itemName,
-                $packingUnit,
-                $quantity,
-                $costPerUnit,
-                $itemValue
-            ]);
-
-            // Add new stock
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
-            $stmt->execute([$quantity, $productId]);
-        }
-        
-        // Update restock transaction header
+        // Get total sales
         $stmt = $pdo->prepare("
-            UPDATE restock_transactions 
-            SET total_restock_value = ?, total_items_restocked = ?, booker_name = ?, deliveryman_name = ?, updated_at = NOW()
-            WHERE id = ? AND user_id = ?
+            SELECT COUNT(*) as total_sales
+            FROM invoices
+            WHERE user_id = ? AND is_deleted = 0 AND created_at BETWEEN ? AND ?
         ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $salesResult = $stmt->fetch();
+        $totalSales = $salesResult['total_sales'] ?? 0;
         
-        $stmt->execute([
-            $totalRestockValue,
-            $totalItemsRestocked,
-            $input['booker_name'],
-            $input['deliveryman_name'],
-            $restockId,
-            $userId
-        ]);
-        
-        $pdo->commit();
-        sendSuccess(['message' => 'Restock updated']);
-        
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        sendError(400, $e->getMessage());
-    }
-}
+        // Get total restocks
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_restocks
+            FROM restock_transactions
+            WHERE user_id = ? AND created_at BETWEEN ? AND ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $restocksResult = $stmt->fetch();
+        $totalRestocks = $restocksResult['total_restocks'] ?? 0;
 
-function handleDeleteRestock($userId, $restockId) {
-    $pdo = getDBConnection();
-    
-    try {
-        $pdo->beginTransaction();
-        // Ensure soft-delete column exists (in case migration hasn't been run)
-        try {
-            $stmt = $pdo->prepare("SHOW COLUMNS FROM restock_transactions LIKE 'deleted_at'");
-            $stmt->execute();
-            $col = $stmt->fetch();
-            if (!$col) {
-                $pdo->exec("ALTER TABLE restock_transactions ADD COLUMN deleted_at datetime NULL DEFAULT NULL AFTER updated_at");
-            }
-        } catch (Exception $e) {
-            // Proceed even if we cannot add the column; deletion request will fail gracefully
-        }
-        
-        // Get restock items
-        $stmt = $pdo->prepare("SELECT * FROM restock_items WHERE restock_id = ?");
-        $stmt->execute([$restockId]);
-        $items = $stmt->fetchAll();
-        
-        // Restore stock
-        foreach ($items as $item) {
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
-            $stmt->execute([$item['quantity'], $item['product_id']]);
-        }
-        
-        // Soft-delete the restock transaction record
-        $stmt = $pdo->prepare("UPDATE restock_transactions SET deleted_at = NOW() WHERE id = ? AND user_id = ?");
-        $stmt->execute([$restockId, $userId]);
-        
-        $pdo->commit();
-        sendSuccess(['message' => 'Restock deleted']);
-        
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        sendError(400, $e->getMessage());
-    }
-}
+        // Get total sales amount
+        $stmt = $pdo->prepare("
+            SELECT SUM(total) as total_sales_amount
+            FROM invoices
+            WHERE user_id = ? AND is_deleted = 0 AND created_at BETWEEN ? AND ?
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $salesAmountResult = $stmt->fetch();
+        $totalSalesAmount = $salesAmountResult['total_sales_amount'] ?? 0;
 
-// New function for combined restock reporting
-function handleGetCombinedRestockReport($userId, $params) {
-    $pdo = getDBConnection();
-    
-    $range = $params['range'] ?? 'today';
-    $startDate = $params['start_date'] ?? null;
-    $endDate = $params['end_date'] ?? null;
-    
-    // Set timezone to Pakistan Standard Time (GMT+5)
-    date_default_timezone_set('Asia/Karachi');
-    
-    // Calculate date range in PKT timezone
-    if (!$startDate && !$endDate) {
-        // Get current date components for month calculations
-        $now = new DateTime();
-        $firstDayOfMonth = new DateTime($now->format('Y-m-01'));
-        $lastDayOfMonth = clone $firstDayOfMonth;
-        $lastDayOfMonth->modify('last day of this month');
-        
-        $firstDayOfLastMonth = clone $firstDayOfMonth;
-        $firstDayOfLastMonth->modify('first day of last month');
-        $lastDayOfLastMonth = clone $firstDayOfMonth;
-        $lastDayOfLastMonth->modify('last day of last month');
-        
-        switch ($range) {
-            case 'today':
-                $startDate = date('Y-m-d 00:00:00');
-                $endDate = date('Y-m-d 23:59:59');
-                break;
-            case 'yesterday':
-                $startDate = date('Y-m-d 00:00:00', strtotime('-1 day'));
-                $endDate = date('Y-m-d 23:59:59', strtotime('-1 day'));
-                break;
-            case 'last_7_days':
-                $startDate = date('Y-m-d 00:00:00', strtotime('-7 days'));
-                $endDate = date('Y-m-d 23:59:59');
-                break;
-            case 'last_30_days':
-                $startDate = date('Y-m-d 00:00:00', strtotime('-30 days'));
-                $endDate = date('Y-m-d 23:59:59');
-                break;
-            case 'this_month':
-                $startDate = $firstDayOfMonth->format('Y-m-d 00:00:00');
-                $endDate = $lastDayOfMonth->format('Y-m-d 23:59:59');
-                break;
-            case 'last_month':
-                $startDate = $firstDayOfLastMonth->format('Y-m-d 00:00:00');
-                $endDate = $lastDayOfLastMonth->format('Y-m-d 23:59:59');
-                break;
-            default:
-                $startDate = date('Y-m-d 00:00:00');
-                $endDate = date('Y-m-d 23:59:59');
-        }
-    }
-    
-    // Query to get combined restock report
-    $query = "
-        SELECT 
-            ri.product_name,
-            ri.packing_unit,
-            SUM(ri.quantity) as total_quantity,
-            AVG(ri.cost_per_unit) as avg_cost_per_unit,
-            SUM(ri.total_cost) as total_cost,
-            COUNT(DISTINCT rt.id) as transaction_count,
-            MAX(rt.booker_name) as booker_name,
-            MAX(rt.deliveryman_name) as deliveryman_name
-        FROM restock_items ri
-        JOIN restock_transactions rt ON ri.restock_id = rt.id
-        WHERE rt.user_id = ? 
-        AND rt.restock_timestamp >= ? 
-        AND rt.restock_timestamp <= ?
-        
-        GROUP BY ri.product_name, ri.packing_unit
-        ORDER BY total_quantity DESC
-    ";
-    
-    $stmt = $pdo->prepare($query);
-    $stmt->execute([$userId, $startDate, $endDate]);
-    $items = $stmt->fetchAll();
-    
-    // Calculate totals
-    $totalRestockAmount = 0;
-    $totalQuantity = 0;
-    $totalProducts = count($items);
-    
-    foreach ($items as $item) {
-        $totalRestockAmount += $item['total_cost'];
-        $totalQuantity += $item['total_quantity'];
-    }
-    
-    sendSuccess([
-        'range' => $range,
-        'start_date' => $startDate,
-        'end_date' => $endDate,
-        'items' => $items,
-        'total_restock_amount' => $totalRestockAmount,
-        'total_quantity' => $totalQuantity,
-        'total_products' => $totalProducts
-    ]);
-}
+        // Get total restock amount
+        $stmt = $pdo->prepare("
+            SELECT SUM(amount) as total_restock_amount
+            FROM restock_transactions
+            WHERE user_id = ? AND created_at BETWEEN ? AND ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $restockAmountResult = $stmt->fetch();
+        $totalRestockAmount = $restockAmountResult['total_restock_amount'] ?? 0;
 
-// ==================== NET PROFIT CALCULATION ====================
+        // Get total profit
+        $totalProfit = $totalSalesAmount - $totalRestockAmount;
 
-?>
+        // Get total products
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_products
+            FROM products
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $productsResult = $stmt->fetch();
+        $totalProducts = $productsResult['total_products'] ?? 0;
+
+        // Get total customers
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_customers
+            FROM customers
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $customersResult = $stmt->fetch();
+        $totalCustomers = $customersResult['total_customers'] ?? 0;
+
+        // Get total suppliers
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_suppliers
+            FROM suppliers
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $suppliersResult = $stmt->fetch();
+        $totalSuppliers = $suppliersResult['total_suppliers'] ?? 0;
+
+        // Get total categories
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_categories
+            FROM categories
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $categoriesResult = $stmt->fetch();
+        $totalCategories = $categoriesResult['total_categories'] ?? 0;
+
+        // Get total units
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_units
+            FROM units
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $unitsResult = $stmt->fetch();
+        $totalUnits = $unitsResult['total_units'] ?? 0;
+
+        // Get total taxes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_taxes
+            FROM taxes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $taxesResult = $stmt->fetch();
+        $totalTaxes = $taxesResult['total_taxes'] ?? 0;
+
+        // Get total discounts
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_discounts
+            FROM discounts
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $discountsResult = $stmt->fetch();
+        $totalDiscounts = $discountsResult['total_discounts'] ?? 0;
+
+        // Get total payments
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_payments
+            FROM payments
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $paymentsResult = $stmt->fetch();
+        $totalPayments = $paymentsResult['total_payments'] ?? 0;
+
+        // Get total payment methods
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_payment_methods
+            FROM payment_methods
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $paymentMethodsResult = $stmt->fetch();
+        $totalPaymentMethods = $paymentMethodsResult['total_payment_methods'] ?? 0;
+
+        // Get total warehouses
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_warehouses
+            FROM warehouses
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $warehousesResult = $stmt->fetch();
+        $totalWarehouses = $warehousesResult['total_warehouses'] ?? 0;
+
+        // Get total locations
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_locations
+            FROM locations
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $locationsResult = $stmt->fetch();
+        $totalLocations = $locationsResult['total_locations'] ?? 0;
+
+        // Get total users
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_users
+            FROM users
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $usersResult = $stmt->fetch();
+        $totalUsers = $usersResult['total_users'] ?? 0;
+
+        // Get total roles
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_roles
+            FROM roles
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $rolesResult = $stmt->fetch();
+        $totalRoles = $rolesResult['total_roles'] ?? 0;
+
+        // Get total permissions
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_permissions
+            FROM permissions
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $permissionsResult = $stmt->fetch();
+        $totalPermissions = $permissionsResult['total_permissions'] ?? 0;
+
+        // Get total logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_logs
+            FROM logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $logsResult = $stmt->fetch();
+        $totalLogs = $logsResult['total_logs'] ?? 0;
+
+        // Get total settings
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_settings
+            FROM settings
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $settingsResult = $stmt->fetch();
+        $totalSettings = $settingsResult['total_settings'] ?? 0;
+
+        // Get total notifications
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_notifications
+            FROM notifications
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $notificationsResult = $stmt->fetch();
+        $totalNotifications = $notificationsResult['total_notifications'] ?? 0;
+
+        // Get total reports
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_reports
+            FROM reports
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $reportsResult = $stmt->fetch();
+        $totalReports = $reportsResult['total_reports'] ?? 0;
+
+        // Get total backups
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_backups
+            FROM backups
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $backupsResult = $stmt->fetch();
+        $totalBackups = $backupsResult['total_backups'] ?? 0;
+
+        // Get total cron jobs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_cron_jobs
+            FROM cron_jobs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $cronJobsResult = $stmt->fetch();
+        $totalCronJobs = $cronJobsResult['total_cron_jobs'] ?? 0;
+
+        // Get total webhooks
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_webhooks
+            FROM webhooks
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $webhooksResult = $stmt->fetch();
+        $totalWebhooks = $webhooksResult['total_webhooks'] ?? 0;
+
+        // Get total api keys
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_keys
+            FROM api_keys
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiKeysResult = $stmt->fetch();
+        $totalApiKeys = $apiKeysResult['total_api_keys'] ?? 0;
+
+        // Get total api logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_logs
+            FROM api_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiLogsResult = $stmt->fetch();
+        $totalApiLogs = $apiLogsResult['total_api_logs'] ?? 0;
+
+        // Get total api rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_rate_limits
+            FROM api_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiRateLimitsResult = $stmt->fetch();
+        $totalApiRateLimits = $apiRateLimitsResult['total_api_rate_limits'] ?? 0;
+
+        // Get total api scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_scopes
+            FROM api_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiScopesResult = $stmt->fetch();
+        $totalApiScopes = $apiScopesResult['total_api_scopes'] ?? 0;
+
+        // Get total api tokens
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_tokens
+            FROM api_tokens
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokensResult = $stmt->fetch();
+        $totalApiTokens = $apiTokensResult['total_api_tokens'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenRateLimitsResult = $stmt->fetch();
+        $totalApiTokenRateLimits = $apiTokenRateLimitsResult['total_api_token_rate_limits'] ?? 0;
+
+        // Get total api token logs
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_logs
+            FROM api_token_logs
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenLogsResult = $stmt->fetch();
+        $totalApiTokenLogs = $apiTokenLogsResult['total_api_token_logs'] ?? 0;
+
+        // Get total api token scopes
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_scopes
+            FROM api_token_scopes
+            WHERE user_id = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId]);
+        $apiTokenScopesResult = $stmt->fetch();
+        $totalApiTokenScopes = $apiTokenScopesResult['total_api_token_scopes'] ?? 0;
+
+        // Get total api token rate limits
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_api_token_rate_limits
+            FROM api_token_rate_limits
+            WHERE user_id = ? AND deleted_at IS NULL

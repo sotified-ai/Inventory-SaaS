@@ -24,9 +24,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { productsAPI, salesAPI, categoriesAPI, isUsingMySQL } from "@/lib/api";
+import { productsAPI, salesAPI, categoriesAPI, customersAPI, driversAPI, isUsingMySQL } from "@/lib/api";
 import { SYSTEM_NAME } from "@/App";
 import { formatNumber } from "@/lib/utils";
+import SearchableSelect from "@/components/SearchableSelect";
 
 // Helper function to safely convert values to numbers before calling toFixed
 const safeNumber = (value, fallback = 0) => {
@@ -56,6 +57,10 @@ const NewSale = () => {
   const [itemDiscount, setItemDiscount] = useState(0);
   const [bonusQuantity, setBonusQuantity] = useState(0);
   const [finalDiscountPercent, setFinalDiscountPercent] = useState(0);
+  const [customerOptions, setCustomerOptions] = useState([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [driverOptions, setDriverOptions] = useState([]);
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
   const dropdownRef = useRef(null); // Ref for dropdown container
   const API_BASE = `${process.env.REACT_APP_BACKEND_URL}/api`;
   const getDevToken = () => {
@@ -65,6 +70,123 @@ const NewSale = () => {
       localStorage.setItem("dev-user-id", id);
     }
     return id;
+  };
+
+  // Fetch customers for autocomplete
+  const fetchCustomers = async (searchTerm = '') => {
+    if (!isUsingMySQL()) return;
+
+    setLoadingCustomers(true);
+    try {
+      const allCustomers = await customersAPI.getAll();
+      const filtered = allCustomers.filter(customer =>
+        customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (customer.phone && customer.phone.includes(searchTerm))
+      );
+      setCustomerOptions(filtered);
+    } catch (error) {
+      console.error("Failed to fetch customers:", error);
+    } finally {
+      setLoadingCustomers(false);
+    }
+  };
+
+  // Handle customer selection
+  const handleCustomerSelect = (customer) => {
+    if (customer) {
+      setCustomerName(customer.name || '');
+      setCustomerPhone(customer.phone || '');
+      setCustomerAddress(customer.address || '');
+    } else {
+      setCustomerName('');
+      setCustomerPhone('');
+      setCustomerAddress('');
+    }
+  };
+
+  // Handle customer search input
+  const handleCustomerSearch = (searchTerm) => {
+    // If the search term looks like a phone number, search by phone
+    if (searchTerm && /^\d+$/.test(searchTerm)) {
+      const foundCustomer = customerOptions.find(c => c.phone === searchTerm);
+      if (foundCustomer) {
+        handleCustomerSelect(foundCustomer);
+        return;
+      }
+    }
+    fetchCustomers(searchTerm);
+  };
+
+  // Create new customer
+  const createNewCustomer = async (name) => {
+    if (!isUsingMySQL()) return;
+
+    try {
+      const newCustomer = await customersAPI.create({
+        name,
+        customer_code: `CUST-${Date.now()}`,
+        phone: '',
+        address: ''
+      });
+      setCustomerOptions([...customerOptions, newCustomer]);
+      handleCustomerSelect(newCustomer);
+      toast.success("Customer created successfully");
+    } catch (error) {
+      console.error("Failed to create customer:", error);
+      toast.error("Failed to create customer");
+    }
+  };
+
+  // Fetch drivers for autocomplete
+  const fetchDrivers = async (searchTerm = '') => {
+    if (!isUsingMySQL()) return;
+
+    setLoadingDrivers(true);
+    try {
+      const allDrivers = await driversAPI.getAll();
+      const filtered = allDrivers.filter(driver =>
+        driver.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (driver.phone && driver.phone.includes(searchTerm))
+      );
+      setDriverOptions(filtered);
+    } catch (error) {
+      console.error("Failed to fetch drivers:", error);
+    } finally {
+      setLoadingDrivers(false);
+    }
+  };
+
+  // Handle driver selection
+  const handleDriverSelect = (driver) => {
+    if (driver) {
+      setDeliverymanName(driver.name || '');
+    } else {
+      setDeliverymanName('');
+    }
+  };
+
+  // Handle driver search input
+  const handleDriverSearch = (searchTerm) => {
+    fetchDrivers(searchTerm);
+  };
+
+  // Create new driver
+  const createNewDriver = async (name) => {
+    if (!isUsingMySQL()) return;
+
+    try {
+      const newDriver = await driversAPI.create({
+        name,
+        phone: '',
+        vehicle_number: ''
+      });
+      setDriverOptions([...driverOptions, newDriver]);
+      handleDriverSelect(newDriver);
+      toast.success("Driver created successfully");
+    } catch (error) {
+      console.error("Failed to create driver:", error);
+      toast.error("Failed to create driver");
+    }
   };
 
   // Handle click outside to close dropdown
@@ -84,6 +206,8 @@ const NewSale = () => {
   useEffect(() => {
     fetchProducts();
     fetchCategories(); // Fetch categories for display
+    fetchCustomers(); // Fetch customers for autocomplete
+    fetchDrivers(); // Fetch drivers for autocomplete
 
     // Check if we're editing a sale from navigation state
     if (location.state?.editInvoice) {
@@ -1004,13 +1128,18 @@ const NewSale = () => {
             </CardHeader>
             <CardContent>
               <div className="mb-4">
-                <Label>Customer Name</Label>
-                <Input
-                  type="text"
-                  placeholder="Enter customer name"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  data-testid="customer-name-input"
+                <SearchableSelect
+                  value={customerName ? { name: customerName, phone: customerPhone, address: customerAddress } : null}
+                  onChange={handleCustomerSelect}
+                  options={customerOptions}
+                  placeholder="Search customer by name or phone number"
+                  label="Customer"
+                  searchBy={['name', 'phone']}
+                  displayField="name"
+                  onInputChange={handleCustomerSearch}
+                  loading={loadingCustomers}
+                  allowNew={true}
+                  onCreateNew={createNewCustomer}
                 />
               </div>
               <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1022,6 +1151,7 @@ const NewSale = () => {
                     value={customerPhone}
                     onChange={(e) => setCustomerPhone(e.target.value)}
                     data-testid="customer-phone-input"
+                    readOnly={!!customerName}
                   />
                 </div>
                 <div>
@@ -1032,19 +1162,25 @@ const NewSale = () => {
                     value={customerAddress}
                     onChange={(e) => setCustomerAddress(e.target.value)}
                     data-testid="customer-address-input"
+                    readOnly={!!customerName}
                   />
                 </div>
               </div>
               <div className="mb-4">
-                <Label>Deliveryman Name (optional)</Label>
-                <Input
-                  type="text"
-                  placeholder="Enter deliveryman name"
-                  value={deliverymanName}
-                  onChange={(e) => setDeliverymanName(e.target.value)}
-                  data-testid="deliveryman-name-input"
+                <Label>Delivery Man</Label>
+                <SearchableSelect
+                  options={driverOptions}
+                  onChange={handleDriverSelect}
+                  onInputChange={handleDriverSearch}
+                  onCreateNew={createNewDriver}
+                  placeholder="Search or add Delivery Man"
+                  loading={loadingDrivers}
+                  value={deliverymanName ? { name: deliverymanName } : null}
+                  searchBy={['name']}
+                  displayField="name"
                 />
               </div>
+
               <div className="flex gap-4">
                 <div className="flex-1 relative" ref={dropdownRef}>
                   <Label>Product (Search by name or SKU)</Label>

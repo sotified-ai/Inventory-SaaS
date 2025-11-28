@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Minus, Trash2, ShoppingCart, Printer } from "lucide-react";
 import { toast } from "sonner";
-import { productsAPI, salesAPI, isUsingMySQL } from "@/lib/api";
+import { API_BASE, productsAPI, salesAPI, brokersAPI, driversAPI, customersAPI, isUsingMySQL } from "@/lib/api";
 import { SYSTEM_NAME } from "@/App";
 import { formatNumber } from "@/lib/utils";
+import SearchableSelect from "@/components/SearchableSelect";
 
 const MarketSupply = () => {
   const navigate = useNavigate();
@@ -22,6 +23,148 @@ const MarketSupply = () => {
   const [loading, setLoading] = useState(true);
   const [supplySheet, setSupplySheet] = useState(null);
   const dropdownRef = useRef(null);
+
+  // Add new state for autocomplete options
+  const [brokerOptions, setBrokerOptions] = useState([]);
+  const [driverOptions, setDriverOptions] = useState([]);
+  const [customerOptions, setCustomerOptions] = useState([]);
+  const [loadingBrokers, setLoadingBrokers] = useState(false);
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+
+  // State for selected entities
+  const [selectedBroker, setSelectedBroker] = useState(null);
+  const [selectedDriver, setSelectedDriver] = useState(null);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+
+  // Fetch brokers for autocomplete
+  const fetchBrokers = async (searchTerm = '') => {
+    try {
+      setLoadingBrokers(true);
+      const data = await brokersAPI.getAll();
+      const filtered = data.filter(broker =>
+        broker.name.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setBrokerOptions(filtered);
+    } catch (err) {
+      console.error('Failed to fetch brokers:', err);
+      toast.error('Failed to fetch brokers');
+    } finally {
+      setLoadingBrokers(false);
+    }
+  };
+
+  // Fetch drivers for autocomplete
+  const fetchDrivers = async (searchTerm = '') => {
+    if (!isUsingMySQL()) return;
+
+    setLoadingDrivers(true);
+    try {
+      const allDrivers = await driversAPI.getAll();
+      const filtered = allDrivers.filter(driver =>
+        driver.name.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setDriverOptions(filtered);
+    } catch (error) {
+      console.error("Failed to fetch drivers:", error);
+    } finally {
+      setLoadingDrivers(false);
+    }
+  };
+
+  // Fetch customers for autocomplete
+  const fetchCustomers = async (searchTerm = '') => {
+    if (!isUsingMySQL()) return;
+
+    setLoadingCustomers(true);
+    try {
+      const allCustomers = await customersAPI.getAll();
+      const filtered = allCustomers.filter(customer =>
+        customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (customer.phone && customer.phone.includes(searchTerm))
+      );
+      setCustomerOptions(filtered);
+    } catch (error) {
+      console.error("Failed to fetch customers:", error);
+    } finally {
+      setLoadingCustomers(false);
+    }
+  };
+
+  // Handle broker selection
+  const handleBrokerSelect = (broker) => {
+    setSelectedBroker(broker);
+  };
+
+  // Handle driver selection
+  const handleDriverSelect = (driver) => {
+    setSelectedDriver(driver);
+  };
+
+  // Handle customer selection
+  const handleCustomerSelect = (customer) => {
+    setSelectedCustomer(customer);
+  };
+
+  // Create new broker
+  const createNewBroker = async (name) => {
+    if (!isUsingMySQL()) return;
+
+    try {
+      const newBroker = await brokersAPI.create({
+        name,
+        phone: '',
+        commission_type: 'percentage',
+        commission_value: 0
+      });
+      setBrokerOptions([...brokerOptions, newBroker]);
+      handleBrokerSelect(newBroker);
+      toast.success("Broker created successfully");
+    } catch (error) {
+      console.error("Failed to create broker:", error);
+      toast.error("Failed to create broker");
+    }
+  };
+
+  // Create new driver
+  const createNewDriver = async (name) => {
+    if (!isUsingMySQL()) return;
+
+    try {
+      const newDriver = await driversAPI.create({
+        name,
+        phone: '',
+        vehicle_number: '',
+        license_number: ''
+      });
+      setDriverOptions([...driverOptions, newDriver]);
+      handleDriverSelect(newDriver);
+      toast.success("Driver created successfully");
+    } catch (error) {
+      console.error("Failed to create driver:", error);
+      toast.error("Failed to create driver");
+    }
+  };
+
+  // Create new customer
+  const createNewCustomer = async (name) => {
+    if (!isUsingMySQL()) return;
+
+    try {
+      const newCustomer = await customersAPI.create({
+        name,
+        customer_code: `CUST-${Date.now()}`,
+        phone: '',
+        address: ''
+      });
+      setCustomerOptions([...customerOptions, newCustomer]);
+      handleCustomerSelect(newCustomer);
+      toast.success("Customer created successfully");
+    } catch (error) {
+      console.error("Failed to create customer:", error);
+      toast.error("Failed to create customer");
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -38,6 +181,9 @@ const MarketSupply = () => {
 
   useEffect(() => {
     fetchProducts();
+    fetchBrokers();
+    fetchDrivers();
+    fetchCustomers();
   }, []);
 
   const fetchProducts = async () => {
@@ -187,6 +333,10 @@ const MarketSupply = () => {
 
       const supplyPayload = {
         items: itemsWithTotals,
+        // Add selected entities to payload if they exist
+        ...(selectedBroker && { broker_id: selectedBroker.id }),
+        ...(selectedDriver && { driver_id: selectedDriver.id }),
+        ...(selectedCustomer && { customer_id: selectedCustomer.id }),
       };
 
       const supplyData = await salesAPI.createSupply(supplyPayload);
@@ -299,6 +449,52 @@ const MarketSupply = () => {
               <CardTitle>Add Products</CardTitle>
             </CardHeader>
             <CardContent>
+              {/* Add entity selection fields */}
+              <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <SearchableSelect
+                  value={selectedBroker}
+                  onChange={handleBrokerSelect}
+                  options={brokerOptions}
+                  placeholder="Search broker"
+                  label="Booker/Broker"
+                  searchBy={['name']}
+                  displayField="name"
+                  onInputChange={fetchBrokers}
+                  loading={loadingBrokers}
+                  allowNew={true}
+                  onCreateNew={createNewBroker}
+                />
+
+                <SearchableSelect
+                  value={selectedDriver}
+                  onChange={handleDriverSelect}
+                  options={driverOptions}
+                  placeholder="Search driver"
+                  label="Delivery Man"
+                  searchBy={['name']}
+                  displayField="name"
+                  onInputChange={fetchDrivers}
+                  loading={loadingDrivers}
+                  allowNew={true}
+                  onCreateNew={createNewDriver}
+                />
+
+                <SearchableSelect
+                  value={selectedCustomer}
+                  onChange={handleCustomerSelect}
+                  options={customerOptions}
+                  placeholder="Search customer"
+                  label="Customer"
+                  searchBy={['name', 'phone']}
+                  displayField="name"
+                  onInputChange={fetchCustomers}
+                  loading={loadingCustomers}
+                  allowNew={true}
+                  onCreateNew={createNewCustomer}
+                />
+              </div>
+
+              {/* Existing product search */}
               <div className="flex gap-4">
                 <div className="flex-1 relative" ref={dropdownRef}>
                   <Label>Product</Label>

@@ -4,12 +4,18 @@ function resolveApiBase() {
     if (typeof window !== 'undefined') {
       const origin = window.location.origin || '';
       const host = window.location.hostname || '';
+
+      // If running locally, FORCE local backend
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return 'http://localhost:8000/api.php/api';
+      }
+
       // If served from realgiveaways.com, use same-origin relative path to avoid CORS
       if (host.includes('realgiveaways.com')) {
         return '/api.php/api';
       }
     }
-  } catch (_) {}
+  } catch (_) { }
   // Fallbacks: explicit env, backend URL, or remote PHP
   const base = (
     process.env.REACT_APP_API_BASE ||
@@ -25,11 +31,11 @@ const BASE_URL = API_BASE;
 const parseResponseJSON = async (response, context = '') => {
   // Read the response body directly to avoid conflicts with external libraries
   const text = await response.text();
-  
+
   if (!response.ok) {
     let errorMessage = context ? `${context}: ${text}` : text;
     let errorData = null;
-    
+
     // Try to parse JSON error response
     try {
       errorData = JSON.parse(text);
@@ -37,15 +43,15 @@ const parseResponseJSON = async (response, context = '') => {
     } catch (e) {
       // If parsing fails, use the raw text
     }
-    
+
     // Handle authentication errors
     if (response.status === 401) {
       handleAuthError();
     }
-    
+
     throw new Error(errorMessage);
   }
-  
+
   try {
     return JSON.parse(text);
   } catch {
@@ -54,18 +60,41 @@ const parseResponseJSON = async (response, context = '') => {
 };
 
 // Wrapper function to prevent rrweb recorder from accessing original response
-const safeFetch = async (url, options) => {
-  const response = await fetch(url, options);
-  
-  // Handle response properly to avoid "Response body is already used" error
-  const responseClone = response.clone();
-  const responseText = await response.text();
-  
-  // Create a new response object with the consumed body
-  return new Response(responseText, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers
+// Wrapper function to prevent rrweb recorder from accessing original response
+// Wrapper function to prevent rrweb recorder from accessing original response
+export const safeFetch = (url, options = {}) => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(options.method || 'GET', url);
+
+    if (options.headers) {
+      Object.entries(options.headers).forEach(([key, value]) => {
+        xhr.setRequestHeader(key, value);
+      });
+    }
+
+    xhr.onload = () => {
+      // Create a Response-like object to maintain compatibility with existing code
+      const response = {
+        ok: xhr.status >= 200 && xhr.status < 300,
+        status: xhr.status,
+        statusText: xhr.statusText,
+        text: () => Promise.resolve(xhr.responseText),
+        json: () => Promise.resolve(JSON.parse(xhr.responseText)),
+        headers: {
+          get: (name) => xhr.getResponseHeader(name)
+        }
+      };
+      resolve(response);
+    };
+
+    xhr.onerror = () => reject(new Error('Network request failed'));
+
+    if (options.body) {
+      xhr.send(options.body);
+    } else {
+      xhr.send();
+    }
   });
 };
 
@@ -110,7 +139,7 @@ export const productsAPI = {
       headers: getAuthHeaders(),
       body: JSON.stringify(productData),
     });
-    
+
     return parseResponseJSON(response, 'Failed to create product');
   },
 
@@ -188,6 +217,13 @@ export const salesAPI = {
     });
     return parseResponseJSON(response, 'Failed to fetch sales history');
   },
+
+  getItemizedSummary: async (range = 'today') => {
+    const response = await safeFetch(`${BASE_URL}/reports/itemized_sales_summary?range=${range}`, {
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to fetch itemized sales summary');
+  },
 };
 
 // Supply API
@@ -242,7 +278,7 @@ export const dashboardAPI = {
   },
 
   getSummary: async () => {
-    const response = await safeFetch(`${BASE_URL}/reports/dashboard_summary`, {
+    const response = await safeFetch(`${BASE_URL}/dashboard/stats`, {
       headers: getAuthHeaders(),
     });
     return parseResponseJSON(response, 'Failed to fetch dashboard summary');
@@ -525,4 +561,12 @@ export const warehousesAPI = {
 
 export const isUsingMySQL = () => {
   return localStorage.getItem("skip-login") === "true" && localStorage.getItem("mysql-token");
+};
+
+// Dashboard Stats API
+export const getDashboardStats = async () => {
+  const response = await safeFetch(`${BASE_URL}/dashboard/stats`, {
+    headers: getAuthHeaders(),
+  });
+  return parseResponseJSON(response, 'Failed to fetch dashboard stats');
 };

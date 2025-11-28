@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Search } from 'lucide-react';
 import { toast } from 'sonner';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, safeFetch } from '@/lib/api';
 
 /**
  * Generic CRUD Table Component
@@ -38,12 +38,13 @@ const CRUDTable = ({
         setData(Array.isArray(result) ? result : []);
       } else {
         const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE}${apiEndpoint}`, {
+        const response = await safeFetch(`${API_BASE}${apiEndpoint}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
         });
 
+        // safeFetch returns a response-like object, we can use .json() or check .ok
         if (!response.ok) throw new Error('Failed to fetch data');
         const result = await response.json();
         setData(Array.isArray(result) ? result : []);
@@ -65,7 +66,7 @@ const CRUDTable = ({
 
     try {
       const processedData = onBeforeSubmit(formData);
-      
+
       // Use new API functions if provided, otherwise use old fetch approach
       if (api) {
         if (editingItem) {
@@ -79,7 +80,7 @@ const CRUDTable = ({
           ? `${API_BASE}${apiEndpoint}/${getRowKey(editingItem)}`
           : `${API_BASE}${apiEndpoint}`;
 
-        const response = await fetch(url, {
+        const response = await safeFetch(url, {
           method: editingItem ? 'PUT' : 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -121,7 +122,7 @@ const CRUDTable = ({
         await api.delete(getRowKey(item));
       } else {
         const token = localStorage.getItem('token');
-        const response = await fetch(`${API_BASE}${apiEndpoint}/${getRowKey(item)}`, {
+        const response = await safeFetch(`${API_BASE}${apiEndpoint}/${getRowKey(item)}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${token}`,

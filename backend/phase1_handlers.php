@@ -226,8 +226,10 @@ function handleCreateSupplier($userId, $input) {
             sendError(400, "Supplier name and code are required");
         }
         
-        $stmt = $pdo->prepare("INSERT INTO suppliers (supplier_code, name, phone, email, address, payment_terms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())");
+        $id = generateUUID();
+        $stmt = $pdo->prepare("INSERT INTO suppliers (id, supplier_code, name, phone, email, address, payment_terms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
         $stmt->execute([
+            $id,
             $input['supplier_code'],
             $input['name'],
             $input['phone'] ?? null,
@@ -236,7 +238,6 @@ function handleCreateSupplier($userId, $input) {
             $input['payment_terms'] ?? null
         ]);
         
-        $id = $pdo->lastInsertId();
         logAudit($pdo, $userId, 'supplier', $id, 'create', $input);
         
         $stmt = $pdo->prepare("SELECT * FROM suppliers WHERE id = ?");
@@ -343,8 +344,10 @@ function handleCreateCustomer($userId, $input) {
             sendError(400, "Customer name and code are required");
         }
         
-        $stmt = $pdo->prepare("INSERT INTO customers (customer_code, name, phone, email, address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())");
+        $id = generateUUID();
+        $stmt = $pdo->prepare("INSERT INTO customers (id, customer_code, name, phone, email, address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())");
         $stmt->execute([
+            $id,
             $input['customer_code'],
             $input['name'],
             $input['phone'] ?? null,
@@ -352,7 +355,6 @@ function handleCreateCustomer($userId, $input) {
             $input['address'] ?? null
         ]);
         
-        $id = $pdo->lastInsertId();
         logAudit($pdo, $userId, 'customer', $id, 'create', $input);
         
         $stmt = $pdo->prepare("SELECT * FROM customers WHERE id = ?");
@@ -458,8 +460,10 @@ function handleCreateBroker($userId, $input) {
             sendError(400, "Broker name is required");
         }
         
-        $stmt = $pdo->prepare("INSERT INTO brokers (name, phone, email, address, commission_rate, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())");
+        $id = generateUUID();
+        $stmt = $pdo->prepare("INSERT INTO brokers (id, name, phone, email, address, commission_rate, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())");
         $stmt->execute([
+            $id,
             $input['name'],
             $input['phone'] ?? null,
             $input['email'] ?? null,
@@ -467,7 +471,6 @@ function handleCreateBroker($userId, $input) {
             $input['commission_rate'] ?? 0
         ]);
         
-        $id = $pdo->lastInsertId();
         logAudit($pdo, $userId, 'broker', $id, 'create', $input);
         
         $stmt = $pdo->prepare("SELECT * FROM brokers WHERE id = ?");
@@ -567,15 +570,16 @@ function handleCreateDriver($userId, $input) {
             sendError(400, "Driver name is required");
         }
         
-        $stmt = $pdo->prepare("INSERT INTO drivers (name, phone, license_number, vehicle_number, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())");
+        $id = generateUUID();
+        $stmt = $pdo->prepare("INSERT INTO drivers (id, name, phone, license_number, vehicle_number, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())");
         $stmt->execute([
+            $id,
             $input['name'],
             $input['phone'] ?? null,
             $input['license_number'] ?? null,
             $input['vehicle_number'] ?? null
         ]);
         
-        $id = $pdo->lastInsertId();
         logAudit($pdo, $userId, 'driver', $id, 'create', $input);
         
         $stmt = $pdo->prepare("SELECT * FROM drivers WHERE id = ?");

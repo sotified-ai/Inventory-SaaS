@@ -1,171 +1,65 @@
 <?php
-header('X-Debug-Step: 1-Start'); // Immediately check if the script starts
+// HANDLING CORS AT THE VERY TOP
+// This ensures headers are sent even if the script crashes later
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$allowed_domains = ['http://localhost:3000', 'http://localhost:3001', 'https://realgiveaways.com', 'http://realgiveaways.com'];
 
-// Add debugging information
-header('X-Debug-Request-Method: ' . ($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'));
-header('X-Debug-Request-URI: ' . ($_SERVER['REQUEST_URI'] ?? 'UNKNOWN'));
-header('X-Debug-Path: ' . (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? 'UNKNOWN'));
-
-// Extension checks are deferred until after routing is determined so
-// that the login route can function without pdo_mysql/json if needed.
-
-// Environment config (no external config files) using process env with defaults
-$env = function($key, $default = null) {
-    $val = getenv($key);
-    return ($val === false || $val === '') ? $default : $val;
-};
-
-
-
-// LOCAL DATABASE CONFIGURATION
-// define('DB_NAME', $env('DB_NAME', 'inv'));
-// define('DB_USER', $env('DB_USER', 'inv'));
-// define('DB_PASS', $env('DB_PASSWORD', 'inv07'));
-// define('DB_HOST', $env('DB_HOST', 'localhost'));
-// define('DB_PORT', (int)$env('DB_PORT', 3306));
-// define('DB_ENGINE', $env('DB_ENGINE', 'mysql'));
-// define('APP_SECRET', $env('APP_SECRET', 'inventory-saas-secret-key-change-in-production'));
-// define('CORS_ORIGINS', $env('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001'));
-
-// PRODUCTION DATABASE CONFIGURATION (COMMENTED OUT)
-define('DB_NAME', $env('DB_NAME', '****'));
-define('DB_USER', $env('DB_USER', '****'));
-define('DB_PASS', $env('DB_PASSWORD', '!***'));
-define('DB_HOST', $env('DB_HOST', 'localhost'));
-define('DB_PORT', (int)$env('DB_PORT', 3306));
-define('DB_ENGINE', $env('DB_ENGINE', 'mysql'));
-define('APP_SECRET', $env('APP_SECRET', '****-saas-****-key-change-in-****'));
-define('CORS_ORIGINS', $env('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001'));
-
-header('X-Debug-Step: 2-Env-Loaded');
-
-// Set a global exception handler to ensure JSON output for all errors
-set_exception_handler(function($exception) {
-    // Ensure headers are set to JSON
-    if (!headers_sent()) {
-        header('Content-Type: application/json');
-        header('X-Debug-Exception: Yes');
-        header('X-Debug-Exception-Message: ' . $exception->getMessage());
-        header('X-Debug-Exception-File: ' . $exception->getFile());
-        header('X-Debug-Exception-Line: ' . $exception->getLine());
-    }
-    http_response_code(500);
-    
-    $errorDetails = [
-        'error' => 'An unexpected server error occurred.',
-        'message' => $exception->getMessage(),
-    ];
-
-    // Only show detailed error info in local environment
-    if (defined('CURRENT_ENVIRONMENT') && CURRENT_ENVIRONMENT === 'local') {
-        $errorDetails['file'] = $exception->getFile();
-        $errorDetails['line'] = $exception->getLine();
-        $errorDetails['trace'] = $exception->getTraceAsString();
-    }
-
-    echo safeJsonOutput($errorDetails);
-    exit();
-});
-
-
-
-// PRODUCTION UPDATE: Enhanced CORS with dynamic origin support
-// IMPORTANT: CORS headers MUST be set before Content-Type
-$origin = $_SERVER['HTTP_ORIGIN'] ?? null;
-// Use environment variable CORS_ORIGINS if present, otherwise defaults from config.php
-$corsEnv = getenv('CORS_ORIGINS') ?: (defined('CORS_ORIGINS') ? CORS_ORIGINS : 'https://realgiveaways.com,http://realgiveaways.com');
-$allowedOrigins = array_map('trim', explode(',', $corsEnv));
-// Always allow localhost dev origins for testing regardless of environment
-$allowedOrigins[] = 'http://localhost:3000';
-
-if ($origin && in_array($origin, $allowedOrigins, true)) {
+if (in_array($origin, $allowed_domains)) {
     header("Access-Control-Allow-Origin: $origin");
     header('Access-Control-Allow-Credentials: true');
 } else {
+    // Default to allowing all for development convenience, but be careful in production
     header('Access-Control-Allow-Origin: *');
 }
+
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin');
-header('Access-Control-Expose-Headers: Content-Length, Content-Type, X-Debug-Step, X-Debug-Input-Raw'); // Expose debug header
 header('Access-Control-Max-Age: 86400');
 
-header('Content-Type: application/json');
-
-// Handle preflight OPTIONS request
+// Handle preflight OPTIONS request immediately
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();
 }
 
+header('Content-Type: application/json');
+
 // ==================== INCLUDE PHASE 1 HANDLERS ====================
-header('X-Debug-Step: 4-Including-Handlers');
 if (file_exists(__DIR__ . '/phase1_handlers.php')) {
     require_once __DIR__ . '/phase1_handlers.php';
-    header('X-Debug-Phase1-Handlers: Loaded');
-    // Add debug to check if function exists after inclusion
-    if (function_exists('handleGetWarehouses')) {
-        header('X-Debug-Warehouse-Function: Found');
-    } else {
-        header('X-Debug-Warehouse-Function: Missing');
-    }
-} else {
-    header('X-Debug-Phase1-Handlers: Not-Found');
 }
 
 if (file_exists(__DIR__ . '/phase1_handlers_part2.php')) {
     require_once __DIR__ . '/phase1_handlers_part2.php';
-    header('X-Debug-Phase1-Handlers-Part2: Loaded');
-} else {
-    header('X-Debug-Phase1-Handlers-Part2: Not-Found');
 }
 
 if (file_exists(__DIR__ . '/phase1_handlers_part3.php')) {
     require_once __DIR__ . '/phase1_handlers_part3.php';
-    header('X-Debug-Phase1-Handlers-Part3: Loaded');
-} else {
-    header('X-Debug-Phase1-Handlers-Part3: Not-Found');
 }
-header('X-Debug-Step: 5-Handlers-Included');
 
 // Database Connection
 function getDBConnection($allowFail = false) {
-    header('X-Debug-Step: 3-Get-DB-Connection'); // Check if DB connection function is called
-    header('X-Debug-DB-Host: ' . DB_HOST);
-    header('X-Debug-DB-Name: ' . DB_NAME);
-    header('X-Debug-DB-User: ' . DB_USER);
-    header('X-Debug-DB-Pass: ' . DB_PASS); // This might expose sensitive information in logs
-    header('X-Debug-DB-Pass-Length: ' . strlen(DB_PASS));
-    
     try {
         $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-        header('X-Debug-DSN: ' . $dsn);
         
         $pdo = new PDO($dsn, DB_USER, DB_PASS, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false
         ]);
-        header('X-Debug-Step: 3.1-PDO-Success'); // Check if PDO object is created
         return $pdo;
     } catch (PDOException $e) {
         if ($allowFail) {
-            // For login flow, allow fallback when DB connection fails
-            header('X-Debug-Step: 3.2-PDO-Failed-Allowed');
-            header('X-Debug-DB-Error: ' . $e->getMessage());
             return null;
         } else {
-            // Ensure this error is always JSON
             if (!headers_sent()) {
                 header('Content-Type: application/json');
             }
-            header('X-Debug-Step: 3.2-PDO-Failed'); // Check if PDO object is created
-            header('X-Debug-DB-Error: ' . $e->getMessage());
             
             http_response_code(500);
             echo json_encode([
                 'error' => 'Database connection failed',
-                'message' => $e->getMessage(),
-                'debug_step' => '3.2-PDO-Failed'
+                'message' => $e->getMessage()
             ]);
             exit();
         }
@@ -187,6 +81,7 @@ function hasSoftDelete($pdo) {
     $checked = true;
     return $exists;
 }
+
 // Authentication Helper
 function authenticateRequest() {
     $headers = getAllHeaders();
@@ -360,15 +255,9 @@ $requestMethod = $_SERVER['REQUEST_METHOD'];
 $requestUri = $_SERVER['REQUEST_URI'];
 $path = parse_url($requestUri, PHP_URL_PATH);
 
-// Add debugging for route matching
-header('X-Debug-Route-Method: ' . $requestMethod);
-header('X-Debug-Route-Path: ' . $path);
-
 // Parse input safely without requiring json extension
 $rawInput = file_get_contents('php://input');
 $input = safeJsonDecode($rawInput);
-// Add debugging for input (raw only to avoid json dependency in headers)
-header('X-Debug-Input-Raw: ' . substr($rawInput ?: '', 0, 200));
 
 // Route handling
 $loginPatternMatch = preg_match('#/api/login$#', $path) || 
@@ -378,10 +267,7 @@ $loginPatternMatch = preg_match('#/api/login$#', $path) ||
                      preg_match('#/api\.php/api/login$#', $path);
 
 // Add specific check for the exact path in your curl request
-$exactPathMatch = $path === '/api.php/api/login' || $path === '/api/login';
-header('X-Debug-Exact-Path-Match: ' . ($exactPathMatch ? 'YES' : 'NO'));
-
-header('X-Debug-Login-Pattern-Match: ' . ($loginPatternMatch ? 'YES' : 'NO'));
+$exactPathMatch = $path === '/api.php/api/login';
 
 // Defer extension checks: require pdo_mysql for non-login routes only
 $isLoginRoute = ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch));
@@ -393,23 +279,13 @@ if (!$isLoginRoute && $_SERVER['REQUEST_METHOD'] !== 'OPTIONS') {
 }
 
 if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
-    header('X-Debug-Route-Login: YES');
     handleLogin($input);
 } elseif ($requestMethod === 'POST' && strpos($path, '/auth/register') !== false) {
-    header('X-Debug-Route-Register: YES');
     handleRegister($input);
 } else {
-    header('X-Debug-Route-Other: YES');
     // All other routes require authentication
     $username = authenticateRequest();
     $userId = "mysql-$username";
-    
-    // Debug: Check if warehouse function exists at routing time
-    if (function_exists('handleGetWarehouses')) {
-        header('X-Debug-Warehouse-Function-Routing: Found');
-    } else {
-        header('X-Debug-Warehouse-Function-Routing: Missing');
-    }
     
     // Products
     if (preg_match('#/api\.php/api/products$#', $path) || preg_match('#/api/products$#', $path)) {
@@ -530,7 +406,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create supplier function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/suppliers/(\d+)$#', $path, $matches) || preg_match('#/api/suppliers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/suppliers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/suppliers/([a-f0-9\-]+)$#', $path, $matches)) {
         $supplierId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetSupplier')) {
@@ -570,7 +446,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create customer function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/customers/(\d+)$#', $path, $matches) || preg_match('#/api/customers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/customers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/customers/([a-f0-9\-]+)$#', $path, $matches)) {
         $customerId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetCustomer')) {
@@ -610,7 +486,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create broker function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/brokers/(\d+)$#', $path, $matches) || preg_match('#/api/brokers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/brokers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/brokers/([a-f0-9\-]+)$#', $path, $matches)) {
         $brokerId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetBroker')) {
@@ -650,7 +526,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create driver function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/drivers/(\d+)$#', $path, $matches) || preg_match('#/api/drivers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/drivers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/drivers/([a-f0-9\-]+)$#', $path, $matches)) {
         $driverId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetDriver')) {
@@ -746,32 +622,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
     } else {
         sendError(404, "Endpoint not found");
     }
-
 }
-
-// ==================== INCLUDE PHASE 1 HANDLERS ====================
-header('X-Debug-Step: 4-Including-Handlers');
-if (file_exists(__DIR__ . '/phase1_handlers.php')) {
-    require_once __DIR__ . '/phase1_handlers.php';
-    header('X-Debug-Phase1-Handlers: Loaded');
-} else {
-    header('X-Debug-Phase1-Handlers: Not-Found');
-}
-
-if (file_exists(__DIR__ . '/phase1_handlers_part2.php')) {
-    require_once __DIR__ . '/phase1_handlers_part2.php';
-    header('X-Debug-Phase1-Handlers-Part2: Loaded');
-} else {
-    header('X-Debug-Phase1-Handlers-Part2: Not-Found');
-}
-
-if (file_exists(__DIR__ . '/phase1_handlers_part3.php')) {
-    require_once __DIR__ . '/phase1_handlers_part3.php';
-    header('X-Debug-Phase1-Handlers-Part3: Loaded');
-} else {
-    header('X-Debug-Phase1-Handlers-Part3: Not-Found');
-}
-header('X-Debug-Step: 5-Handlers-Included');
 
 // ==================== MARKET SUPPLY ====================
 
@@ -841,7 +692,6 @@ function handleCreateSupply($userId, $input) {
             }
         }
         
-        // Insert supply transaction header
         // Insert supply transaction header
         $stmt = $pdo->prepare("
             INSERT INTO market_supply 
@@ -974,12 +824,8 @@ function handleGetSupplyHistory($userId, $params) {
 // ==================== AUTHENTICATION ====================
 
 function handleLogin($input) {
-    header('X-Debug-Handle-Login: Start');
     $username = trim($input['username'] ?? '');
     $password = $input['password'] ?? '';
-
-    header('X-Debug-Login-Input-Username: ' . $username);
-    header('X-Debug-Login-Input-Password: ' . (empty($password) ? 'EMPTY' : 'PRESENT'));
 
     if ($username === '' || $password === '') {
         sendError(400, "Username and password required");
@@ -1007,16 +853,20 @@ function handleLogin($input) {
         $token = generateToken($username);
         sendSuccess([
             'token' => $token,
-            'username' => $username,
-            'access_token' => $token,
-            'token_type' => 'bearer',
-            'user_id' => "mysql-" . $username
+            'user' => [
+                'id' => $username,
+                'username' => $username,
+                'email' => $users[$username]['email'] ?? '',
+                'first_name' => $users[$username]['first_name'] ?? '',
+                'last_name' => $users[$username]['last_name'] ?? ''
+            ]
         ]);
         return;
     }
-    
+
+    // DB-based authentication
     try {
-        $stmt = $pdo->prepare("SELECT id, username, password_hash, role, created_at FROM auth_users WHERE username = ?");
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
         $stmt->execute([$username]);
         $user = $stmt->fetch();
 
@@ -1024,17 +874,20 @@ function handleLogin($input) {
             sendError(401, "Invalid credentials");
         }
 
-        if (!verifyUserPassword($password, $user['password_hash'])) {
+        if (!verifyUserPassword($password, $user['password'])) {
             sendError(401, "Invalid credentials");
         }
 
         $token = generateToken($username);
         sendSuccess([
             'token' => $token,
-            'username' => $username,
-            'access_token' => $token,
-            'token_type' => 'bearer',
-            'user_id' => "mysql-" . $username
+            'user' => [
+                'id' => $user['id'],
+                'username' => $user['username'],
+                'email' => $user['email'],
+                'first_name' => $user['first_name'],
+                'last_name' => $user['last_name']
+            ]
         ]);
     } catch (Exception $e) {
         sendError(500, "Login failed: " . $e->getMessage());
@@ -1042,29 +895,42 @@ function handleLogin($input) {
 }
 
 function handleRegister($input) {
-    $pdo = getDBConnection();
-    $username = $input['username'] ?? '';
+    $username = trim($input['username'] ?? '');
     $password = $input['password'] ?? '';
-    
-    if (empty($username) || empty($password)) {
-        sendError(400, "Username and password required");
+    $email = trim($input['email'] ?? '');
+
+    if ($username === '' || $password === '' || $email === '') {
+        sendError(400, "Username, password, and email are required");
     }
+
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        sendError(400, "Invalid email format");
+    }
+
+    $pdo = getDBConnection();
     
     try {
-        $stmt = $pdo->prepare("INSERT INTO auth_users (username, password_hash) VALUES (?, ?)");
-        $stmt->execute([$username, hashPassword($password)]);
-        
-        $token = generateToken($username);
-        sendSuccess([
-            'access_token' => $token,
-            'token_type' => 'bearer',
-            'user_id' => "mysql-$username"
-        ], 201);
-    } catch (PDOException $e) {
-        if ($e->getCode() == 23000) {
-            sendError(400, "Username already exists");
+        // Check if user already exists
+        $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ? OR email = ?");
+        $stmt->execute([$username, $email]);
+        if ($stmt->fetch()) {
+            sendError(409, "User already exists with this username or email");
         }
-        sendError(500, "Registration failed");
+
+        // Hash password
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+        
+        // Create user
+        $userId = generateUUID();
+        $stmt = $pdo->prepare("
+            INSERT INTO users (id, username, password, email, created_at) 
+            VALUES (?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([$userId, $username, $hashedPassword, $email]);
+
+        sendSuccess(['message' => 'User registered successfully'], 201);
+    } catch (Exception $e) {
+        sendError(500, "Registration failed: " . $e->getMessage());
     }
 }
 
@@ -1072,309 +938,427 @@ function handleRegister($input) {
 
 function handleGetProducts($userId) {
     $pdo = getDBConnection();
-    $stmt = $pdo->prepare("SELECT * FROM products WHERE user_id = ? ORDER BY created_at DESC");
+    
+    $stmt = $pdo->prepare("
+        SELECT p.*, c.name as category_name 
+        FROM products p 
+        LEFT JOIN categories c ON p.category_id = c.id 
+        WHERE p.user_id = ? AND p.deleted_at IS NULL
+        ORDER BY p.name ASC
+    ");
     $stmt->execute([$userId]);
-    sendSuccess($stmt->fetchAll());
+    $products = $stmt->fetchAll();
+    
+    sendSuccess($products);
 }
 
 function handleCreateProduct($userId, $input) {
     $pdo = getDBConnection();
-    $id = generateUUID();
+    
+    $name = $input['name'] ?? '';
+    $categoryId = $input['category_id'] ?? null;
+    $sku = $input['sku'] ?? null;
+    $barcode = $input['barcode'] ?? null;
+    $description = $input['description'] ?? '';
+    $costPrice = $input['cost_price'] ?? 0;
+    $sellingPrice = $input['selling_price'] ?? 0;
+    $stock = $input['stock'] ?? 0;
+    $minStock = $input['min_stock'] ?? 0;
+    $unitId = $input['unit_id'] ?? null;
+    $brand = $input['brand'] ?? '';
+    $packingUnit = $input['packing_unit'] ?? '';
+    
+    if (empty($name)) {
+        sendError(400, "Product name is required");
+    }
     
     try {
-        $pdo->beginTransaction();
+        $productId = generateUUID();
         
         $stmt = $pdo->prepare("
-            INSERT INTO products (id, user_id, name, sku, selling_price, cost_price, stock, min_stock, category_id, packing_unit, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            INSERT INTO products 
+            (id, user_id, name, category_id, sku, barcode, description, cost_price, default_selling_price, stock, min_stock, unit_id, brand, packing_unit, created_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         ");
         
-        $initialStock = $input['initial_stock'] ?? 0;
-        
         $stmt->execute([
-            $id,
+            $productId,
             $userId,
-            $input['name'],
-            $input['sku'],
-            $input['selling_price'],
-            $input['cost_price'],
-            $initialStock,
-            $input['min_stock'],
-            $input['category_id'],
-            $input['packing_unit']
+            $name,
+            $categoryId,
+            $sku,
+            $barcode,
+            $description,
+            $costPrice,
+            $sellingPrice,
+            $stock,
+            $minStock,
+            $unitId,
+            $brand,
+            $packingUnit
         ]);
         
-        // Create stock_levels entry for default warehouse if initial stock > 0
-        if ($initialStock > 0) {
-            $warehouseId = $input['warehouse_id'] ?? 1; // Default to main warehouse
-            $stmt = $pdo->prepare("
-                INSERT INTO stock_levels (product_id, warehouse_id, quantity, reserved_quantity, updated_at)
-                VALUES (?, ?, ?, 0, NOW())
-                ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)
-            ");
-            $stmt->execute([$id, $warehouseId, $initialStock]);
-        }
+        // Return the created product
+        $stmt = $pdo->prepare("
+            SELECT p.*, c.name as category_name 
+            FROM products p 
+            LEFT JOIN categories c ON p.category_id = c.id 
+            WHERE p.id = ?
+        ");
+        $stmt->execute([$productId]);
+        $product = $stmt->fetch();
         
-        $pdo->commit();
-        
-        $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
-        $stmt->execute([$id]);
-        sendSuccess($stmt->fetch(), 201);
-        
+        sendSuccess($product, 201);
     } catch (Exception $e) {
-        $pdo->rollBack();
-        sendError(500, "Failed to create product: " . $e->getMessage());
+        sendError(400, $e->getMessage());
     }
 }
 
 function handleUpdateProduct($userId, $productId, $input) {
     $pdo = getDBConnection();
-
+    
+    // Check if product exists and belongs to user
+    $stmt = $pdo->prepare("SELECT id FROM products WHERE id = ? AND user_id = ?");
+    $stmt->execute([$productId, $userId]);
+    if (!$stmt->fetch()) {
+        sendError(404, "Product not found");
+    }
+    
+    $name = $input['name'] ?? '';
+    $categoryId = $input['category_id'] ?? null;
+    $sku = $input['sku'] ?? null;
+    $barcode = $input['barcode'] ?? null;
+    $description = $input['description'] ?? '';
+    $costPrice = $input['cost_price'] ?? 0;
+    $sellingPrice = $input['selling_price'] ?? 0;
+    $stock = $input['stock'] ?? 0;
+    $minStock = $input['min_stock'] ?? 0;
+    $unitId = $input['unit_id'] ?? null;
+    $brand = $input['brand'] ?? '';
+    $packingUnit = $input['packing_unit'] ?? '';
+    
+    if (empty($name)) {
+        sendError(400, "Product name is required");
+    }
+    
     try {
-        $pdo->beginTransaction();
-        
-        // Get current prices for price history
-        $stmt = $pdo->prepare("SELECT cost_price, selling_price FROM products WHERE id = ? AND user_id = ?");
-        $stmt->execute([$productId, $userId]);
-        $currentProduct = $stmt->fetch();
-        
-        if (!$currentProduct) {
-            throw new Exception("Product not found");
-        }
-        
-        $oldCostPrice = $currentProduct['cost_price'];
-        $oldSellingPrice = $currentProduct['selling_price'];
-        $newCostPrice = $input['cost_price'];
-        $newSellingPrice = $input['selling_price'];
-        
-        // Update product
         $stmt = $pdo->prepare("
-            UPDATE products 
-            SET name = ?, sku = ?, selling_price = ?, cost_price = ?, min_stock = ?, category_id = ?, packing_unit = ?
+            UPDATE products SET 
+            name = ?, category_id = ?, sku = ?, barcode = ?, description = ?, 
+            cost_price = ?, default_selling_price = ?, stock = ?, min_stock = ?, 
+            unit_id = ?, brand = ?, packing_unit = ?, updated_at = NOW()
             WHERE id = ? AND user_id = ?
         ");
         
         $stmt->execute([
-            $input['name'],
-            $input['sku'],
-            $newSellingPrice,
-            $newCostPrice,
-            $input['min_stock'],
-            $input['category_id'],
-            $input['packing_unit'],
+            $name,
+            $categoryId,
+            $sku,
+            $barcode,
+            $description,
+            $costPrice,
+            $sellingPrice,
+            $stock,
+            $minStock,
+            $unitId,
+            $brand,
+            $packingUnit,
             $productId,
             $userId
         ]);
         
-        // Log price changes to price_history if prices changed
-        if ($oldCostPrice != $newCostPrice || $oldSellingPrice != $newSellingPrice) {
-            $stmt = $pdo->prepare("
-                INSERT INTO price_history (product_id, old_cost_price, new_cost_price, old_selling_price, new_selling_price, changed_by, changed_at)
-                VALUES (?, ?, ?, ?, ?, ?, NOW())
-            ");
-            $stmt->execute([
-                $productId,
-                $oldCostPrice,
-                $newCostPrice,
-                $oldSellingPrice,
-                $newSellingPrice,
-                $userId
-            ]);
-        }
-        
-        $pdo->commit();
-        
-        $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
+        // Return the updated product
+        $stmt = $pdo->prepare("
+            SELECT p.*, c.name as category_name 
+            FROM products p 
+            LEFT JOIN categories c ON p.category_id = c.id 
+            WHERE p.id = ?
+        ");
         $stmt->execute([$productId]);
-        sendSuccess($stmt->fetch());
+        $product = $stmt->fetch();
         
+        sendSuccess($product);
     } catch (Exception $e) {
-        $pdo->rollBack();
-        sendError(500, "Failed to update product: " . $e->getMessage());
+        sendError(400, $e->getMessage());
     }
 }
 
 function handleDeleteProduct($userId, $productId) {
     $pdo = getDBConnection();
     
-    // CRITICAL: Check if product is used in any sales transactions
-    // Products cannot be deleted if they have sales history (data integrity)
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM invoice_items WHERE product_id = ?");
-    $stmt->execute([$productId]);
-    $result = $stmt->fetch();
-    
-    if ($result['count'] > 0) {
-        sendError(400, "Cannot delete product. It is associated with {$result['count']} sale(s). Historical sales data must be preserved.");
+    // Check if product exists and belongs to user
+    $stmt = $pdo->prepare("SELECT id FROM products WHERE id = ? AND user_id = ?");
+    $stmt->execute([$productId, $userId]);
+    if (!$stmt->fetch()) {
+        sendError(404, "Product not found");
     }
     
-    // If no sales references, safe to delete
-    $stmt = $pdo->prepare("DELETE FROM products WHERE id = ? AND user_id = ?");
-    $stmt->execute([$productId, $userId]);
-    sendSuccess(['message' => 'Product deleted']);
+    try {
+        // Soft delete
+        $stmt = $pdo->prepare("UPDATE products SET deleted_at = NOW() WHERE id = ? AND user_id = ?");
+        $stmt->execute([$productId, $userId]);
+        
+        sendSuccess(['message' => 'Product deleted successfully']);
+    } catch (Exception $e) {
+        sendError(400, $e->getMessage());
+    }
 }
 
 function handleRestock($userId, $input) {
     $pdo = getDBConnection();
-    $stmt = $pdo->prepare("UPDATE products SET stock = stock + ? WHERE id = ? AND user_id = ?");
-    $stmt->execute([$input['quantity'], $input['product_id'], $userId]);
-    sendSuccess(['message' => 'Stock updated']);
+    
+    $productId = $input['product_id'] ?? '';
+    $quantity = $input['quantity'] ?? 0;
+    $costPerUnit = $input['cost_per_unit'] ?? 0;
+    
+    if (empty($productId) || $quantity <= 0) {
+        sendError(400, "Product ID and quantity (greater than 0) are required");
+    }
+    
+    try {
+        $pdo->beginTransaction();
+        
+        // Update product stock and cost price
+        $stmt = $pdo->prepare("
+            UPDATE products 
+            SET stock = stock + ?, cost_price = ? 
+            WHERE id = ? AND user_id = ?
+        ");
+        $stmt->execute([$quantity, $costPerUnit, $productId, $userId]);
+        
+        // Insert restock transaction
+        $transactionId = generateUUID();
+        $stmt = $pdo->prepare("
+            INSERT INTO restock_transactions 
+            (id, user_id, product_id, quantity, cost_per_unit, transaction_date) 
+            VALUES (?, ?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([$transactionId, $userId, $productId, $quantity, $costPerUnit]);
+        
+        $pdo->commit();
+        
+        sendSuccess(['message' => 'Product restocked successfully'], 201);
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        sendError(400, $e->getMessage());
+    }
 }
 
 // ==================== CATEGORIES ====================
 
 function handleGetCategories($userId) {
     $pdo = getDBConnection();
-    $stmt = $pdo->prepare("SELECT * FROM categories WHERE user_id = ? ORDER BY name ASC");
+    
+    $stmt = $pdo->prepare("SELECT * FROM categories WHERE user_id = ? AND deleted_at IS NULL ORDER BY name ASC");
     $stmt->execute([$userId]);
-    sendSuccess($stmt->fetchAll());
+    $categories = $stmt->fetchAll();
+    
+    sendSuccess($categories);
 }
 
 function handleCreateCategory($userId, $input) {
     $pdo = getDBConnection();
     
+    $name = $input['name'] ?? '';
+    
+    if (empty($name)) {
+        sendError(400, "Category name is required");
+    }
+    
     try {
-        $stmt = $pdo->prepare("INSERT INTO categories (name, user_id) VALUES (?, ?)");
-        $stmt->execute([$input['name'], $userId]);
+        $categoryId = generateUUID();
         
-        $id = $pdo->lastInsertId();
+        $stmt = $pdo->prepare("INSERT INTO categories (id, user_id, name, created_at) VALUES (?, ?, ?, NOW())");
+        $stmt->execute([$categoryId, $userId, $name]);
+        
+        // Return the created category
         $stmt = $pdo->prepare("SELECT * FROM categories WHERE id = ?");
-        $stmt->execute([$id]);
-        sendSuccess($stmt->fetch(), 201);
-    } catch (PDOException $e) {
-        if ($e->getCode() == 23000) {
-            sendError(400, "Category name already exists");
-        }
-        sendError(500, "Failed to create category");
+        $stmt->execute([$categoryId]);
+        $category = $stmt->fetch();
+        
+        sendSuccess($category, 201);
+    } catch (Exception $e) {
+        sendError(400, $e->getMessage());
     }
 }
 
 function handleUpdateCategory($userId, $categoryId, $input) {
     $pdo = getDBConnection();
-    $stmt = $pdo->prepare("UPDATE categories SET name = ? WHERE id = ? AND user_id = ?");
-    $stmt->execute([$input['name'], $categoryId, $userId]);
     
-    $stmt = $pdo->prepare("SELECT * FROM categories WHERE id = ?");
-    $stmt->execute([$categoryId]);
-    sendSuccess($stmt->fetch());
+    // Check if category exists and belongs to user
+    $stmt = $pdo->prepare("SELECT id FROM categories WHERE id = ? AND user_id = ?");
+    $stmt->execute([$categoryId, $userId]);
+    if (!$stmt->fetch()) {
+        sendError(404, "Category not found");
+    }
+    
+    $name = $input['name'] ?? '';
+    
+    if (empty($name)) {
+        sendError(400, "Category name is required");
+    }
+    
+    try {
+        $stmt = $pdo->prepare("UPDATE categories SET name = ?, updated_at = NOW() WHERE id = ? AND user_id = ?");
+        $stmt->execute([$name, $categoryId, $userId]);
+        
+        // Return the updated category
+        $stmt = $pdo->prepare("SELECT * FROM categories WHERE id = ?");
+        $stmt->execute([$categoryId]);
+        $category = $stmt->fetch();
+        
+        sendSuccess($category);
+    } catch (Exception $e) {
+        sendError(400, $e->getMessage());
+    }
 }
 
 function handleDeleteCategory($userId, $categoryId) {
     $pdo = getDBConnection();
     
-    // Check if any products use this category
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM products WHERE category_id = ? AND user_id = ?");
+    // Check if category exists and belongs to user
+    $stmt = $pdo->prepare("SELECT id FROM categories WHERE id = ? AND user_id = ?");
     $stmt->execute([$categoryId, $userId]);
-    $result = $stmt->fetch();
-    
-    if ($result['count'] > 0) {
-        sendError(400, "Cannot delete category - it is assigned to {$result['count']} product(s)");
+    if (!$stmt->fetch()) {
+        sendError(404, "Category not found");
     }
     
-    $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ? AND user_id = ?");
-    $stmt->execute([$categoryId, $userId]);
-    sendSuccess(['message' => 'Category deleted']);
+    try {
+        // Soft delete
+        $stmt = $pdo->prepare("UPDATE categories SET deleted_at = NOW() WHERE id = ? AND user_id = ?");
+        $stmt->execute([$categoryId, $userId]);
+        
+        sendSuccess(['message' => 'Category deleted successfully']);
+    } catch (Exception $e) {
+        sendError(400, $e->getMessage());
+    }
 }
 
-// ==================== SALES (CRITICAL TRANSACTIONAL LOGIC) ====================
+// ==================== SALES ====================
 
 function handleCreateSale($userId, $input) {
     $pdo = getDBConnection();
     
-    // Validate customer name is present
-    if (empty($input['customer_name'])) {
-        sendError(400, "Customer name is required");
+    $customerName = $input['customer_name'] ?? '';
+    $items = $input['items'] ?? [];
+    $discount = $input['discount'] ?? 0;
+    $tax = $input['tax'] ?? 0;
+    $paymentMethod = $input['payment_method'] ?? 'cash';
+    $bookerName = $input['booker_name'] ?? null;
+    $deliverymanName = $input['deliveryman_name'] ?? null;
+    
+    if (empty($items)) {
+        sendError(400, "At least one item is required");
     }
     
     try {
         $pdo->beginTransaction();
         
-        $invoiceId = generateUUID();
-        $invoiceNumber = 'INV-' . time() . '-' . substr($invoiceId, 0, 8);
+        // Generate a unique invoice number
+        do {
+            $invoiceId = generateUUID();
+            $invoiceNumber = 'INV-' . time() . '-' . substr($invoiceId, 0, 8);
+            $stmt = $pdo->prepare("SELECT id FROM invoices WHERE invoice_number = ?");
+            $stmt->execute([$invoiceNumber]);
+            $exists = $stmt->fetch();
+        } while ($exists);
         
-        // Validate and deduct stock for all items
-        // CRITICAL: Stock deduction = paid_qty + bonus_qty (total units)
-        // But revenue calculation uses ONLY paid_qty (done in frontend)
-        foreach ($input['items'] as $item) {
-            $productId = $item['product_id'];
-            $quantity = $item['quantity']; // Paid quantity
-            $bonusQty = $item['bonus_quantity'] ?? 0; // Free bonus units
-            $totalUnits = $quantity + $bonusQty; // Total units leaving inventory
-            
-            // Check stock
-            $stmt = $pdo->prepare("SELECT stock FROM products WHERE id = ? AND user_id = ?");
-            $stmt->execute([$productId, $userId]);
-            $product = $stmt->fetch();
-            
-            if (!$product || $product['stock'] < $totalUnits) {
-                throw new Exception("Insufficient stock for product $productId");
-            }
-            
-            // Deduct stock (paid + bonus units)
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
-            $stmt->execute([$totalUnits, $productId]);
+        // Calculate totals
+        $subtotal = 0;
+        $totalQuantity = 0;
+        foreach ($items as $item) {
+            $subtotal += $item['quantity'] * $item['selling_price'];
+            $totalQuantity += $item['quantity'];
         }
+        
+        $totalDiscount = $discount;
+        $totalTax = $tax;
+        $finalTotal = $subtotal - $totalDiscount + $totalTax;
         
         // Insert invoice
         $stmt = $pdo->prepare("
-            INSERT INTO invoices (id, invoice_number, user_id, customer_name, customer_phone, customer_address, 
-                deliveryman_name, subtotal, total, discount_percentage, final_discount_amount, final_total_amount, sale_timestamp, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())
+            INSERT INTO invoices 
+            (id, user_id, invoice_number, customer_name, subtotal, discount, tax, final_total_amount, total_quantity, payment_method, booker_name, deliveryman_name, sale_timestamp) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         ");
         
         $stmt->execute([
             $invoiceId,
-            $invoiceNumber,
             $userId,
-            $input['customer_name'],
-            $input['customer_phone'] ?? null,
-            $input['customer_address'] ?? null,
-            $input['deliveryman_name'] ?? null,
-            $input['subtotal'],
-            $input['total'],
-            $input['discount_percentage'] ?? 0,
-            $input['final_discount_amount'] ?? 0,
-            $input['final_total_amount']
+            $invoiceNumber,
+            $customerName,
+            $subtotal,
+            $totalDiscount,
+            $totalTax,
+            $finalTotal,
+            $totalQuantity,
+            $paymentMethod,
+            $bookerName,
+            $deliverymanName
         ]);
         
-        // Insert invoice items
-        // NOTE: item['total'] is already calculated in frontend using ONLY paid quantity
-        // Bonus quantity is stored but does NOT contribute to revenue
-        foreach ($input['items'] as $item) {
+        // Insert invoice items and update product stock
+        foreach ($items as $item) {
+            $itemId = generateUUID();
+            $productId = $item['product_id'];
+            $quantity = $item['quantity'];
+            $sellingPrice = $item['selling_price'];
+            $total = $quantity * $sellingPrice;
+            
+            // Get product cost price for COGS calculation
+            $stmt = $pdo->prepare("SELECT cost_price FROM products WHERE id = ? AND user_id = ?");
+            $stmt->execute([$productId, $userId]);
+            $product = $stmt->fetch();
+            $costPrice = $product['cost_price'] ?? 0;
+            
+            // Insert invoice item
             $stmt = $pdo->prepare("
-                INSERT INTO invoice_items (invoice_id, product_id, product_name, sku, quantity, 
-                    price_per_unit, unit_price, discount, total_line_price, total, bonus_quantity, returned_quantity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO invoice_items 
+                (id, invoice_id, product_id, quantity, selling_price, total, cost_price_snapshot) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
+                $itemId,
                 $invoiceId,
-                $item['product_id'],
-                $item['product_name'],
-                $item['sku'],
-                $item['quantity'],
-                $item['unit_price'],
-                $item['unit_price'],
-                $item['discount'] ?? 0,
-                $item['total'],
-                $item['total'],
-                $item['bonus_quantity'] ?? 0,
-                $item['returned_quantity'] ?? 0
+                $productId,
+                $quantity,
+                $sellingPrice,
+                $total,
+                $costPrice
             ]);
+            
+            // Update product stock
+            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ? AND user_id = ?");
+            $stmt->execute([$quantity, $productId, $userId]);
         }
         
         $pdo->commit();
         
-        // Return created invoice
-        $stmt = $pdo->prepare("SELECT * FROM invoices WHERE id = ?");
+        // Return the created invoice with items
+        $stmt = $pdo->prepare("
+            SELECT i.*, 
+                   JSON_ARRAYAGG(
+                     JSON_OBJECT(
+                       'id', ii.id,
+                       'product_id', ii.product_id,
+                       'quantity', ii.quantity,
+                       'selling_price', ii.selling_price,
+                       'total', ii.total
+                     )
+                   ) as items
+            FROM invoices i
+            LEFT JOIN invoice_items ii ON i.id = ii.invoice_id
+            WHERE i.id = ?
+            GROUP BY i.id
+        ");
         $stmt->execute([$invoiceId]);
         $invoice = $stmt->fetch();
         
-        $stmt = $pdo->prepare("SELECT * FROM invoice_items WHERE invoice_id = ?");
-        $stmt->execute([$invoiceId]);
-        $invoice['items'] = $stmt->fetchAll();
+        // Parse the items JSON
+        $invoice['items'] = json_decode($invoice['items'], true);
         
         sendSuccess($invoice, 201);
-        
     } catch (Exception $e) {
         $pdo->rollBack();
         sendError(400, $e->getMessage());
@@ -1384,97 +1368,128 @@ function handleCreateSale($userId, $input) {
 function handleUpdateSale($userId, $invoiceId, $input) {
     $pdo = getDBConnection();
     
-    // Validate customer name is present
-    if (empty($input['customer_name'])) {
-        sendError(400, "Customer name is required");
+    // Check if invoice exists and belongs to user
+    $stmt = $pdo->prepare("SELECT id FROM invoices WHERE id = ? AND user_id = ?");
+    $stmt->execute([$invoiceId, $userId]);
+    if (!$stmt->fetch()) {
+        sendError(404, "Invoice not found");
+    }
+    
+    $customerName = $input['customer_name'] ?? '';
+    $items = $input['items'] ?? [];
+    $discount = $input['discount'] ?? 0;
+    $tax = $input['tax'] ?? 0;
+    $paymentMethod = $input['payment_method'] ?? 'cash';
+    $bookerName = $input['booker_name'] ?? null;
+    $deliverymanName = $input['deliveryman_name'] ?? null;
+    
+    if (empty($items)) {
+        sendError(400, "At least one item is required");
     }
     
     try {
         $pdo->beginTransaction();
         
-        // Get original invoice items
-        $stmt = $pdo->prepare("SELECT * FROM invoice_items WHERE invoice_id = ?");
+        // Delete existing invoice items
+        $stmt = $pdo->prepare("DELETE FROM invoice_items WHERE invoice_id = ?");
         $stmt->execute([$invoiceId]);
-        $originalItems = $stmt->fetchAll();
         
-        // Reverse original stock deductions (paid + bonus)
-        foreach ($originalItems as $item) {
-            $originalTotal = $item['quantity'] + ($item['bonus_quantity'] ?? 0);
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
-            $stmt->execute([$originalTotal, $item['product_id']]);
+        // Calculate totals
+        $subtotal = 0;
+        $totalQuantity = 0;
+        foreach ($items as $item) {
+            $subtotal += $item['quantity'] * $item['selling_price'];
+            $totalQuantity += $item['quantity'];
         }
         
-        // Deduct new stock (paid + bonus)
-        // Revenue uses ONLY paid quantity (calculated in frontend)
-        foreach ($input['items'] as $item) {
-            $totalUnits = $item['quantity'] + ($item['bonus_quantity'] ?? 0);
-            
-            $stmt = $pdo->prepare("SELECT stock FROM products WHERE id = ? AND user_id = ?");
-            $stmt->execute([$item['product_id'], $userId]);
-            $product = $stmt->fetch();
-            
-            if (!$product || $product['stock'] < $totalUnits) {
-                throw new Exception("Insufficient stock for product {$item['product_id']}");
-            }
-            
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
-            $stmt->execute([$totalUnits, $item['product_id']]);
-        }
+        $totalDiscount = $discount;
+        $totalTax = $tax;
+        $finalTotal = $subtotal - $totalDiscount + $totalTax;
         
         // Update invoice
         $stmt = $pdo->prepare("
-            UPDATE invoices SET customer_name = ?, customer_phone = ?, customer_address = ?,
-                deliveryman_name = ?, subtotal = ?, total = ?, discount_percentage = ?,
-                final_discount_amount = ?, final_total_amount = ?, updated_at = NOW()
+            UPDATE invoices SET 
+            customer_name = ?, subtotal = ?, discount = ?, tax = ?, final_total_amount = ?, 
+            total_quantity = ?, payment_method = ?, booker_name = ?, deliveryman_name = ?, updated_at = NOW()
             WHERE id = ? AND user_id = ?
         ");
         
         $stmt->execute([
-            $input['customer_name'] ?? null,
-            $input['customer_phone'] ?? null,
-            $input['customer_address'] ?? null,
-            $input['deliveryman_name'] ?? null,
-            $input['subtotal'],
-            $input['total'],
-            $input['discount_percentage'] ?? 0,
-            $input['final_discount_amount'] ?? 0,
-            $input['final_total_amount'],
+            $customerName,
+            $subtotal,
+            $totalDiscount,
+            $totalTax,
+            $finalTotal,
+            $totalQuantity,
+            $paymentMethod,
+            $bookerName,
+            $deliverymanName,
             $invoiceId,
             $userId
         ]);
         
-        // Delete old items
-        $stmt = $pdo->prepare("DELETE FROM invoice_items WHERE invoice_id = ?");
-        $stmt->execute([$invoiceId]);
-        
-        // Insert new items
-        // NOTE: item['total'] already calculated in frontend using ONLY paid quantity
-        foreach ($input['items'] as $item) {
+        // Insert new invoice items and update product stock
+        foreach ($items as $item) {
+            $itemId = generateUUID();
+            $productId = $item['product_id'];
+            $quantity = $item['quantity'];
+            $sellingPrice = $item['selling_price'];
+            $total = $quantity * $sellingPrice;
+            
+            // Get product cost price for COGS calculation
+            $stmt = $pdo->prepare("SELECT cost_price FROM products WHERE id = ? AND user_id = ?");
+            $stmt->execute([$productId, $userId]);
+            $product = $stmt->fetch();
+            $costPrice = $product['cost_price'] ?? 0;
+            
+            // Insert invoice item
             $stmt = $pdo->prepare("
-                INSERT INTO invoice_items (invoice_id, product_id, product_name, sku, quantity,
-                    price_per_unit, unit_price, discount, total_line_price, total, bonus_quantity, returned_quantity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO invoice_items 
+                (id, invoice_id, product_id, quantity, selling_price, total, cost_price_snapshot) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
             
             $stmt->execute([
+                $itemId,
                 $invoiceId,
-                $item['product_id'],
-                $item['product_name'],
-                $item['sku'],
-                $item['quantity'],
-                $item['unit_price'],
-                $item['unit_price'],
-                $item['discount'] ?? 0,
-                $item['total'],
-                $item['total'],
-                $item['bonus_quantity'] ?? 0,
-                $item['returned_quantity'] ?? 0
+                $productId,
+                $quantity,
+                $sellingPrice,
+                $total,
+                $costPrice
             ]);
+            
+            // Update product stock
+            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ? AND user_id = ?");
+            $stmt->execute([$quantity, $productId, $userId]);
         }
         
         $pdo->commit();
-        sendSuccess(['message' => 'Sale updated']);
         
+        // Return the updated invoice with items
+        $stmt = $pdo->prepare("
+            SELECT i.*, 
+                   JSON_ARRAYAGG(
+                     JSON_OBJECT(
+                       'id', ii.id,
+                       'product_id', ii.product_id,
+                       'quantity', ii.quantity,
+                       'selling_price', ii.selling_price,
+                       'total', ii.total
+                     )
+                   ) as items
+            FROM invoices i
+            LEFT JOIN invoice_items ii ON i.id = ii.invoice_id
+            WHERE i.id = ?
+            GROUP BY i.id
+        ");
+        $stmt->execute([$invoiceId]);
+        $invoice = $stmt->fetch();
+        
+        // Parse the items JSON
+        $invoice['items'] = json_decode($invoice['items'], true);
+        
+        sendSuccess($invoice);
     } catch (Exception $e) {
         $pdo->rollBack();
         sendError(400, $e->getMessage());
@@ -1484,30 +1499,20 @@ function handleUpdateSale($userId, $invoiceId, $input) {
 function handleDeleteSale($userId, $invoiceId) {
     $pdo = getDBConnection();
     
+    // Check if invoice exists and belongs to user
+    $stmt = $pdo->prepare("SELECT id FROM invoices WHERE id = ? AND user_id = ?");
+    $stmt->execute([$invoiceId, $userId]);
+    if (!$stmt->fetch()) {
+        sendError(404, "Invoice not found");
+    }
+    
     try {
-        $pdo->beginTransaction();
-        
-        // Get invoice items
-        $stmt = $pdo->prepare("SELECT * FROM invoice_items WHERE invoice_id = ?");
-        $stmt->execute([$invoiceId]);
-        $items = $stmt->fetchAll();
-        
-        // Restore stock
-        foreach ($items as $item) {
-            $totalUnits = $item['quantity'] + ($item['bonus_quantity'] ?? 0);
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
-            $stmt->execute([$totalUnits, $item['product_id']]);
-        }
-        
-        // Soft delete invoice
-        $stmt = $pdo->prepare("UPDATE invoices SET is_deleted = 1 WHERE id = ? AND user_id = ?");
+        // Soft delete
+        $stmt = $pdo->prepare("UPDATE invoices SET is_deleted = 1, updated_at = NOW() WHERE id = ? AND user_id = ?");
         $stmt->execute([$invoiceId, $userId]);
         
-        $pdo->commit();
-        sendSuccess(['message' => 'Sale deleted']);
-        
+        sendSuccess(['message' => 'Invoice deleted successfully']);
     } catch (Exception $e) {
-        $pdo->rollBack();
         sendError(400, $e->getMessage());
     }
 }
@@ -1576,54 +1581,105 @@ function handleSalesHistory($userId, $params) {
 }
 
 function handleDashboardStats($userId) {
-    $pdo = getDBConnection();
-    
-    // Get product stats
-    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM products WHERE user_id = ?");
-    $stmt->execute([$userId]);
-    $totalProducts = $stmt->fetch()['total'];
-    
-    $stmt = $pdo->prepare("SELECT COUNT(*) as low_stock FROM products WHERE user_id = ? AND stock <= min_stock");
-    $stmt->execute([$userId]);
-    $lowStock = $stmt->fetch()['low_stock'];
-    
-    // Get sales stats
-    $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM invoices WHERE user_id = ? AND is_deleted = 0");
-    $stmt->execute([$userId]);
-    $totalSales = $stmt->fetch()['total'];
-    
-    $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_total_amount), 0) as revenue FROM invoices WHERE user_id = ? AND is_deleted = 0");
-    $stmt->execute([$userId]);
-    $revenue = $stmt->fetch()['revenue'] ?? 0;
-    
-    $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_discount_amount), 0) as discount FROM invoices WHERE user_id = ? AND is_deleted = 0");
-    $stmt->execute([$userId]);
-    $totalDiscount = $stmt->fetch()['discount'] ?? 0;
-    
-    // Calculate Net Profit (Revenue - COGS)
-    // COGS = SUM(quantity * cost_price) for all sold items
-    $stmt = $pdo->prepare("
-        SELECT COALESCE(SUM(ii.quantity * IFNULL(p.cost_price, 0)), 0) as cogs
-        FROM invoice_items ii
-        JOIN invoices i ON ii.invoice_id = i.id
-        JOIN products p ON ii.product_id = p.id
-        WHERE i.user_id = ? AND i.is_deleted = 0
-    ");
-    $stmt->execute([$userId]);
-    $cogsResult = $stmt->fetch();
-    $cogs = $cogsResult['cogs'] ?? 0;
-    
-    $netProfit = $revenue - $cogs;
-    
-    sendSuccess([
-        'total_products' => (int)$totalProducts,
-        'low_stock_count' => (int)$lowStock,
-        'total_sales' => (int)$totalSales,
-        'total_revenue' => (float)$revenue,
-        'total_discount' => (float)$totalDiscount,
-        'total_cogs' => (float)$cogs,
-        'net_profit' => (float)$netProfit
-    ]);
+    try {
+        $pdo = getDBConnection();
+        
+        // Get product stats
+        try {
+            $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM products WHERE user_id = ?");
+            $stmt->execute([$userId]);
+            $totalProducts = $stmt->fetch()['total'];
+        } catch (Exception $e) { $totalProducts = 0; }
+        
+        try {
+            $stmt = $pdo->prepare("SELECT COUNT(*) as low_stock FROM products WHERE user_id = ? AND stock <= min_stock");
+            $stmt->execute([$userId]);
+            $lowStock = $stmt->fetch()['low_stock'];
+        } catch (Exception $e) { $lowStock = 0; }
+        
+        // Get sales stats
+        try {
+            $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM invoices WHERE user_id = ? AND is_deleted = 0");
+            $stmt->execute([$userId]);
+            $totalSales = $stmt->fetch()['total'];
+        } catch (Exception $e) { $totalSales = 0; }
+        
+        try {
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_total_amount), 0) as revenue FROM invoices WHERE user_id = ? AND is_deleted = 0");
+            $stmt->execute([$userId]);
+            $revenue = $stmt->fetch()['revenue'] ?? 0;
+        } catch (Exception $e) { $revenue = 0; }
+        
+        try {
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(final_discount_amount), 0) as discount FROM invoices WHERE user_id = ? AND is_deleted = 0");
+            $stmt->execute([$userId]);
+            $totalDiscount = $stmt->fetch()['discount'] ?? 0;
+        } catch (Exception $e) { $totalDiscount = 0; }
+
+        // Get restock stats
+        try {
+            $stmt = $pdo->prepare("SELECT COUNT(*) as total FROM restock_transactions WHERE user_id = ? AND (deleted_at IS NULL)");
+            $stmt->execute([$userId]);
+            $totalRestocks = $stmt->fetch()['total'];
+        } catch (Exception $e) { $totalRestocks = 0; }
+        
+        // Calculate Net Profit (Revenue - COGS - Expenses)
+        // COGS = SUM(quantity * cost_price_snapshot) for all sold items
+        try {
+            $stmt = $pdo->prepare("
+                SELECT COALESCE(SUM(ii.quantity * ii.cost_price_snapshot), 0) as cogs
+                FROM invoice_items ii
+                JOIN invoices i ON ii.invoice_id = i.id
+                WHERE i.user_id = ? AND i.is_deleted = 0
+            ");
+            $stmt->execute([$userId]);
+            $cogsResult = $stmt->fetch();
+            $cogs = $cogsResult['cogs'] ?? 0;
+        } catch (Exception $e) { $cogs = 0; }
+        
+        // Get expenses
+        try {
+            $stmt = $pdo->prepare("
+                SELECT COALESCE(SUM(amount), 0) as expenses
+                FROM expenses
+                WHERE created_by = ?
+            ");
+            $stmt->execute([$userId]);
+            $expensesResult = $stmt->fetch();
+            $expenses = $expensesResult['expenses'] ?? 0;
+        } catch (Exception $e) { $expenses = 0; }
+        
+        $grossProfit = $revenue - $cogs;
+        $netProfit = $grossProfit - $expenses;
+        
+        sendSuccess([
+            'total_products' => (int)$totalProducts,
+            'low_stock_count' => (int)$lowStock,
+            'total_sales' => (int)$totalSales,
+            'total_restocks' => (int)$totalRestocks,
+            'total_revenue' => (float)$revenue,
+            'total_discount' => (float)$totalDiscount,
+            'total_cogs' => (float)$cogs,
+            'total_expenses' => (float)$expenses,
+            'gross_profit' => (float)$grossProfit,
+            'net_profit' => (float)$netProfit
+        ]);
+    } catch (Exception $e) {
+        // Fallback if DB connection fails completely
+        sendSuccess([
+            'total_products' => 0,
+            'low_stock_count' => 0,
+            'total_sales' => 0,
+            'total_restocks' => 0,
+            'total_revenue' => 0,
+            'total_discount' => 0,
+            'total_cogs' => 0,
+            'total_expenses' => 0,
+            'gross_profit' => 0,
+            'net_profit' => 0,
+            'error' => 'Failed to load stats: ' . $e->getMessage()
+        ]);
+    }
 }
 
 function handleItemizedSales($userId, $params) {
@@ -1643,65 +1699,125 @@ function handleItemizedSales($userId, $params) {
             $startDate = date('Y-m-d 00:00:00');
             break;
         case 'yesterday':
+            // Start of yesterday in PKT (00:00:00) to end of yesterday in PKT (23:59:59)
             $startDate = date('Y-m-d 00:00:00', strtotime('-1 day'));
             $endDate = date('Y-m-d 23:59:59', strtotime('-1 day'));
             break;
-        case 'last_7_days':
-        case 'week':
-            $startDate = date('Y-m-d 00:00:00', strtotime('-7 days'));
+        case 'this_week':
+            // Start of this week in PKT (Monday 00:00:00) to end of this week in PKT (Sunday 23:59:59)
+            $startDate = date('Y-m-d 00:00:00', strtotime('this week'));
+            $endDate = date('Y-m-d 23:59:59', strtotime('this week'));
             break;
-        case 'month':
-            $startDate = date('Y-m-d 00:00:00', strtotime('-30 days'));
+        case 'last_week':
+            // Start of last week in PKT (Monday 00:00:00) to end of last week in PKT (Sunday 23:59:59)
+            $startDate = date('Y-m-d 00:00:00', strtotime('last week'));
+            $endDate = date('Y-m-d 23:59:59', strtotime('last week'));
             break;
-        case 'year':
-            $startDate = date('Y-m-d 00:00:00', strtotime('-365 days'));
+        case 'this_month':
+            // Start of this month in PKT (1st day 00:00:00) to end of this month in PKT (last day 23:59:59)
+            $startDate = date('Y-m-01 00:00:00');
+            $endDate = date('Y-m-t 23:59:59');
+            break;
+        case 'last_month':
+            // Start of last month in PKT (1st day 00:00:00) to end of last month in PKT (last day 23:59:59)
+            $startDate = date('Y-m-01 00:00:00', strtotime('last month'));
+            $endDate = date('Y-m-t 23:59:59', strtotime('last month'));
+            break;
+        case 'this_year':
+            // Start of this year in PKT (1st day 00:00:00) to end of this year in PKT (last day 23:59:59)
+            $startDate = date('Y-01-01 00:00:00');
+            $endDate = date('Y-12-31 23:59:59');
+            break;
+        case 'last_year':
+            // Start of last year in PKT (1st day 00:00:00) to end of last year in PKT (last day 23:59:59)
+            $startDate = date('Y-01-01 00:00:00', strtotime('last year'));
+            $endDate = date('Y-12-31 23:59:59', strtotime('last year'));
+            break;
+        default:
+            // Default to today
+            $startDate = date('Y-m-d 00:00:00');
             break;
     }
     
-    $query = "  
-        SELECT 
-            p.id as product_id,
-            p.name as product_name,
-            SUM(ii.quantity + COALESCE(ii.bonus_quantity, 0)) as total_quantity_sold,
-            ii.unit_price,
-            SUM(ii.quantity * ii.unit_price) as total_line_revenue
-        FROM invoice_items ii
-        JOIN invoices i ON ii.invoice_id = i.id
-        JOIN products p ON ii.product_id = p.id
-        WHERE i.user_id = ? AND i.is_deleted = 0
-    ";
-    
-    $queryParams = [$userId];
-    
-    if ($startDate) {
-        $query .= " AND i.sale_timestamp >= ?";
-        $queryParams[] = $startDate;
+    try {
+        // Get total revenue
+        $stmt = $pdo->prepare("
+            SELECT COALESCE(SUM(total), 0) as revenue
+            FROM invoices
+            WHERE user_id = ? AND is_deleted = 0 AND created_at BETWEEN ? AND ?
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $revenueResult = $stmt->fetch();
+        $revenue = $revenueResult['revenue'] ?? 0;
+        
+        // Get total discount
+        $stmt = $pdo->prepare("
+            SELECT COALESCE(SUM(discount), 0) as discount
+            FROM invoices
+            WHERE user_id = ? AND is_deleted = 0 AND created_at BETWEEN ? AND ?
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $discountResult = $stmt->fetch();
+        $totalDiscount = $discountResult['discount'] ?? 0;
+        
+        // Get total sales
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_sales
+            FROM invoices
+            WHERE user_id = ? AND is_deleted = 0 AND created_at BETWEEN ? AND ?
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $salesResult = $stmt->fetch();
+        $totalSales = $salesResult['total_sales'] ?? 0;
+        
+        // Get total restocks
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as total_restocks
+            FROM restock_transactions
+            WHERE user_id = ? AND created_at BETWEEN ? AND ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $restocksResult = $stmt->fetch();
+        $totalRestocks = $restocksResult['total_restocks'] ?? 0;
+
+        // Get total sales amount
+        $stmt = $pdo->prepare("
+            SELECT SUM(total) as total_sales_amount
+            FROM invoices
+            WHERE user_id = ? AND is_deleted = 0 AND created_at BETWEEN ? AND ?
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $salesAmountResult = $stmt->fetch();
+        $totalSalesAmount = $salesAmountResult['total_sales_amount'] ?? 0;
+
+        // Get total restock amount
+        $stmt = $pdo->prepare("
+            SELECT SUM(amount) as total_restock_amount
+            FROM restock_transactions
+            WHERE user_id = ? AND created_at BETWEEN ? AND ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $restockAmountResult = $stmt->fetch();
+        $totalRestockAmount = $restockAmountResult['total_restock_amount'] ?? 0;
+
+        // Get total profit
+        $totalProfit = $totalSalesAmount - $totalRestockAmount;
+
+        sendSuccess([
+            'range' => $range,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'revenue' => (float)$revenue,
+            'discount' => (float)$totalDiscount,
+            'total_sales' => (int)$totalSales,
+            'total_restocks' => (int)$totalRestocks,
+            'sales_amount' => (float)$totalSalesAmount,
+            'restock_amount' => (float)$totalRestockAmount,
+            'profit' => (float)$totalProfit
+        ]);
+    } catch (Exception $e) {
+        sendError(500, 'Failed to fetch itemized sales: ' . $e->getMessage());
     }
-    
-    $query .= " AND i.sale_timestamp <= ?";
-    $queryParams[] = $endDate;
-    
-    $query .= " GROUP BY p.id, p.name, ii.unit_price ORDER BY total_quantity_sold DESC";
-    
-    $stmt = $pdo->prepare($query);
-    $stmt->execute($queryParams);
-    $items = $stmt->fetchAll();
-    
-    // Calculate totals
-    $totalQuantity = 0;
-    $totalRevenue = 0;
-    foreach ($items as $item) {
-        $totalQuantity += $item['total_quantity_sold'];
-        $totalRevenue += $item['total_line_revenue'];
-    }
-    
-    sendSuccess([
-        'range' => $range,
-        'items' => $items,
-        'total_items' => count($items),
-        'total_quantity' => (int)$totalQuantity,
-        'total_revenue' => (float)$totalRevenue
-    ]);
 }
 
 // ==================== INVOICES ====================
@@ -1919,19 +2035,19 @@ function handleGetRestockTransactions($userId) {
                ) as items
         FROM restock_transactions rt
         LEFT JOIN restock_items ri ON rt.id = ri.restock_id
-        WHERE rt.user_id = ?
+        WHERE rt.user_id = ? AND (rt.deleted_at IS NULL)
         GROUP BY rt.id
         ORDER BY rt.restock_timestamp DESC
     ");
     $stmt->execute([$userId]);
-    $restocks = $stmt->fetchAll();
+    $transactions = $stmt->fetchAll();
     
-    // Parse items JSON for each restock
-    foreach ($restocks as &$restock) {
-        $restock['items'] = json_decode($restock['items'], true);
+    // Parse the items JSON for each transaction
+    foreach ($transactions as &$transaction) {
+        $transaction['items'] = json_decode($transaction['items'], true);
     }
     
-    sendSuccess($restocks);
+    sendSuccess($transactions);
 }
 
 function handleGetRestockTransaction($userId, $restockId) {
@@ -1952,48 +2068,53 @@ function handleGetRestockTransaction($userId, $restockId) {
                ) as items
         FROM restock_transactions rt
         LEFT JOIN restock_items ri ON rt.id = ri.restock_id
-        WHERE rt.id = ? AND rt.user_id = ?
+        WHERE rt.id = ? AND rt.user_id = ? AND (rt.deleted_at IS NULL)
         GROUP BY rt.id
     ");
     $stmt->execute([$restockId, $userId]);
-    $restock = $stmt->fetch();
+    $transaction = $stmt->fetch();
     
-    if (!$restock) {
+    if (!$transaction) {
         sendError(404, "Restock transaction not found");
     }
     
-    // Parse items JSON
-    $restock['items'] = json_decode($restock['items'], true);
+    // Parse the items JSON
+    $transaction['items'] = json_decode($transaction['items'], true);
     
-    sendSuccess($restock);
+    sendSuccess($transaction);
 }
 
 function handleUpdateRestock($userId, $restockId, $input) {
     $pdo = getDBConnection();
     
+    // Check if restock transaction exists and belongs to user
+    $stmt = $pdo->prepare("SELECT id FROM restock_transactions WHERE id = ? AND user_id = ?");
+    $stmt->execute([$restockId, $userId]);
+    if (!$stmt->fetch()) {
+        sendError(404, "Restock transaction not found");
+    }
+    
+    $bookerName = $input['booker_name'] ?? null;
+    $deliverymanName = $input['deliveryman_name'] ?? null;
+    $items = $input['items'] ?? [];
+    
+    if (empty($items)) {
+        sendError(400, "No items provided for restock");
+    }
+    
     try {
         $pdo->beginTransaction();
         
-        // Get original restock items
-        $stmt = $pdo->prepare("SELECT * FROM restock_items WHERE restock_id = ?");
-        $stmt->execute([$restockId]);
-        $originalItems = $stmt->fetchAll();
-        
-        // Reverse original stock additions
-        foreach ($originalItems as $item) {
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
-            $stmt->execute([$item['quantity'], $item['product_id']]);
-        }
-        
-        // Delete old items
+        // Delete existing restock items
         $stmt = $pdo->prepare("DELETE FROM restock_items WHERE restock_id = ?");
         $stmt->execute([$restockId]);
         
+        // Calculate totals
         $totalRestockValue = 0;
         $totalItemsRestocked = 0;
         
         // Process each item in the restock
-        foreach ($input['items'] as $item) {
+        foreach ($items as $item) {
             $productId = $item['product_id'];
             $quantity = $item['quantity'];
             $costPerUnit = $item['cost_per_unit'] ?? 0;
@@ -2019,8 +2140,9 @@ function handleUpdateRestock($userId, $restockId, $input) {
             // Store product details for the restock item
             $itemName = $product['name'];
             $packingUnit = $product['packing_unit'] ?? null;
-
+            
             // Insert restock item detail
+            $itemId = generateUUID();
             $stmt = $pdo->prepare("
                 INSERT INTO restock_items 
                 (id, restock_id, product_id, product_name, packing_unit, quantity, cost_per_unit, total_cost)
@@ -2028,7 +2150,7 @@ function handleUpdateRestock($userId, $restockId, $input) {
             ");
             
             $stmt->execute([
-                generateUUID(),
+                $itemId,
                 $restockId,
                 $productId,
                 $itemName,
@@ -2037,31 +2159,61 @@ function handleUpdateRestock($userId, $restockId, $input) {
                 $costPerUnit,
                 $itemValue
             ]);
-
-            // Add new stock
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
-            $stmt->execute([$quantity, $productId]);
         }
         
         // Update restock transaction header
         $stmt = $pdo->prepare("
-            UPDATE restock_transactions 
-            SET total_restock_value = ?, total_items_restocked = ?, booker_name = ?, deliveryman_name = ?, updated_at = NOW()
+            UPDATE restock_transactions SET 
+            total_restock_value = ?, total_items_restocked = ?, booker_name = ?, deliveryman_name = ?, restock_timestamp = NOW()
             WHERE id = ? AND user_id = ?
         ");
         
         $stmt->execute([
             $totalRestockValue,
             $totalItemsRestocked,
-            $input['booker_name'],
-            $input['deliveryman_name'],
+            $bookerName,
+            $deliverymanName,
             $restockId,
             $userId
         ]);
         
-        $pdo->commit();
-        sendSuccess(['message' => 'Restock updated']);
+        // Update product stock for all items
+        foreach ($items as $item) {
+            $productId = $item['product_id'];
+            $quantity = $item['quantity'];
+            
+            $stmt = $pdo->prepare("UPDATE products SET stock = stock + ? WHERE id = ? AND user_id = ?");
+            $stmt->execute([$quantity, $productId, $userId]);
+        }
         
+        $pdo->commit();
+        
+        // Return updated restock transaction with items
+        $stmt = $pdo->prepare("
+            SELECT rt.*, 
+                   JSON_ARRAYAGG(
+                     JSON_OBJECT(
+                       'id', ri.id,
+                       'product_id', ri.product_id,
+                       'product_name', ri.product_name,
+                       'packing_unit', ri.packing_unit,
+                       'quantity', ri.quantity,
+                       'cost_per_unit', ri.cost_per_unit,
+                       'total_cost', ri.total_cost
+                     )
+                   ) as items
+            FROM restock_transactions rt
+            LEFT JOIN restock_items ri ON rt.id = ri.restock_id
+            WHERE rt.id = ?
+            GROUP BY rt.id
+        ");
+        $stmt->execute([$restockId]);
+        $restock = $stmt->fetch();
+        
+        // Parse the items JSON
+        $restock['items'] = json_decode($restock['items'], true);
+        
+        sendSuccess($restock);
     } catch (Exception $e) {
         $pdo->rollBack();
         sendError(400, $e->getMessage());
@@ -2071,145 +2223,388 @@ function handleUpdateRestock($userId, $restockId, $input) {
 function handleDeleteRestock($userId, $restockId) {
     $pdo = getDBConnection();
     
+    // Check if restock transaction exists and belongs to user
+    $stmt = $pdo->prepare("SELECT id FROM restock_transactions WHERE id = ? AND user_id = ?");
+    $stmt->execute([$restockId, $userId]);
+    if (!$stmt->fetch()) {
+        sendError(404, "Restock transaction not found");
+    }
+    
     try {
-        $pdo->beginTransaction();
-        // Ensure soft-delete column exists (in case migration hasn't been run)
-        try {
-            $stmt = $pdo->prepare("SHOW COLUMNS FROM restock_transactions LIKE 'deleted_at'");
-            $stmt->execute();
-            $col = $stmt->fetch();
-            if (!$col) {
-                $pdo->exec("ALTER TABLE restock_transactions ADD COLUMN deleted_at datetime NULL DEFAULT NULL AFTER updated_at");
-            }
-        } catch (Exception $e) {
-            // Proceed even if we cannot add the column; deletion request will fail gracefully
-        }
-        
-        // Get restock items
-        $stmt = $pdo->prepare("SELECT * FROM restock_items WHERE restock_id = ?");
-        $stmt->execute([$restockId]);
-        $items = $stmt->fetchAll();
-        
-        // Restore stock
-        foreach ($items as $item) {
-            $stmt = $pdo->prepare("UPDATE products SET stock = stock - ? WHERE id = ?");
-            $stmt->execute([$item['quantity'], $item['product_id']]);
-        }
-        
-        // Soft-delete the restock transaction record
+        // Soft delete
         $stmt = $pdo->prepare("UPDATE restock_transactions SET deleted_at = NOW() WHERE id = ? AND user_id = ?");
         $stmt->execute([$restockId, $userId]);
         
-        $pdo->commit();
-        sendSuccess(['message' => 'Restock deleted']);
-        
+        sendSuccess(['message' => 'Restock transaction deleted successfully']);
     } catch (Exception $e) {
-        $pdo->rollBack();
         sendError(400, $e->getMessage());
     }
 }
 
-// New function for combined restock reporting
 function handleGetCombinedRestockReport($userId, $params) {
     $pdo = getDBConnection();
-    
-    $range = $params['range'] ?? 'today';
-    $startDate = $params['start_date'] ?? null;
-    $endDate = $params['end_date'] ?? null;
     
     // Set timezone to Pakistan Standard Time (GMT+5)
     date_default_timezone_set('Asia/Karachi');
     
     // Calculate date range in PKT timezone
-    if (!$startDate && !$endDate) {
-        // Get current date components for month calculations
-        $now = new DateTime();
-        $firstDayOfMonth = new DateTime($now->format('Y-m-01'));
-        $lastDayOfMonth = clone $firstDayOfMonth;
-        $lastDayOfMonth->modify('last day of this month');
+    $startDate = $params['start_date'] ?? date('Y-m-d 00:00:00', strtotime('-30 days'));
+    $endDate = $params['end_date'] ?? date('Y-m-d 23:59:59');
+    
+    try {
+        // Get all restock transactions in the date range
+        $stmt = $pdo->prepare("
+            SELECT rt.*, 
+                   JSON_ARRAYAGG(
+                     JSON_OBJECT(
+                       'id', ri.id,
+                       'product_id', ri.product_id,
+                       'product_name', ri.product_name,
+                       'packing_unit', ri.packing_unit,
+                       'quantity', ri.quantity,
+                       'cost_per_unit', ri.cost_per_unit,
+                       'total_cost', ri.total_cost
+                     )
+                   ) as items
+            FROM restock_transactions rt
+            LEFT JOIN restock_items ri ON rt.id = ri.restock_id
+            WHERE rt.user_id = ? AND rt.restock_timestamp BETWEEN ? AND ? AND (rt.deleted_at IS NULL)
+            GROUP BY rt.id
+            ORDER BY rt.restock_timestamp DESC
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $transactions = $stmt->fetchAll();
         
-        $firstDayOfLastMonth = clone $firstDayOfMonth;
-        $firstDayOfLastMonth->modify('first day of last month');
-        $lastDayOfLastMonth = clone $firstDayOfMonth;
-        $lastDayOfLastMonth->modify('last day of last month');
+        // Parse the items JSON for each transaction and calculate totals
+        $totalRestockAmount = 0;
+        $totalQuantity = 0;
+        $totalProducts = 0;
+        $uniqueProducts = [];
         
-        switch ($range) {
-            case 'today':
-                $startDate = date('Y-m-d 00:00:00');
-                $endDate = date('Y-m-d 23:59:59');
-                break;
-            case 'yesterday':
-                $startDate = date('Y-m-d 00:00:00', strtotime('-1 day'));
-                $endDate = date('Y-m-d 23:59:59', strtotime('-1 day'));
-                break;
-            case 'last_7_days':
-                $startDate = date('Y-m-d 00:00:00', strtotime('-7 days'));
-                $endDate = date('Y-m-d 23:59:59');
-                break;
-            case 'last_30_days':
-                $startDate = date('Y-m-d 00:00:00', strtotime('-30 days'));
-                $endDate = date('Y-m-d 23:59:59');
-                break;
-            case 'this_month':
-                $startDate = $firstDayOfMonth->format('Y-m-d 00:00:00');
-                $endDate = $lastDayOfMonth->format('Y-m-d 23:59:59');
-                break;
-            case 'last_month':
-                $startDate = $firstDayOfLastMonth->format('Y-m-d 00:00:00');
-                $endDate = $lastDayOfLastMonth->format('Y-m-d 23:59:59');
-                break;
-            default:
-                $startDate = date('Y-m-d 00:00:00');
-                $endDate = date('Y-m-d 23:59:59');
+        foreach ($transactions as &$transaction) {
+            $transaction['items'] = json_decode($transaction['items'], true);
+            $totalRestockAmount += $transaction['total_restock_value'];
+            
+            if (is_array($transaction['items'])) {
+                foreach ($transaction['items'] as $item) {
+                    $totalQuantity += $item['quantity'];
+                    if (!in_array($item['product_id'], $uniqueProducts)) {
+                        $uniqueProducts[] = $item['product_id'];
+                    }
+                }
+            }
         }
-    }
-    
-    // Query to get combined restock report
-    $query = "
-        SELECT 
-            ri.product_name,
-            ri.packing_unit,
-            SUM(ri.quantity) as total_quantity,
-            AVG(ri.cost_per_unit) as avg_cost_per_unit,
-            SUM(ri.total_cost) as total_cost,
-            COUNT(DISTINCT rt.id) as transaction_count,
-            MAX(rt.booker_name) as booker_name,
-            MAX(rt.deliveryman_name) as deliveryman_name
-        FROM restock_items ri
-        JOIN restock_transactions rt ON ri.restock_id = rt.id
-        WHERE rt.user_id = ? 
-        AND rt.restock_timestamp >= ? 
-        AND rt.restock_timestamp <= ?
         
-        GROUP BY ri.product_name, ri.packing_unit
-        ORDER BY total_quantity DESC
-    ";
-    
-    $stmt = $pdo->prepare($query);
-    $stmt->execute([$userId, $startDate, $endDate]);
-    $items = $stmt->fetchAll();
-    
-    // Calculate totals
-    $totalRestockAmount = 0;
-    $totalQuantity = 0;
-    $totalProducts = count($items);
-    
-    foreach ($items as $item) {
-        $totalRestockAmount += $item['total_cost'];
-        $totalQuantity += $item['total_quantity'];
+        $totalProducts = count($uniqueProducts);
+        
+        sendSuccess([
+            'range' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate
+            ],
+            'items' => $transactions,
+            'total_restock_amount' => $totalRestockAmount,
+            'total_quantity' => $totalQuantity,
+            'total_products' => $totalProducts
+        ]);
+    } catch (Exception $e) {
+        sendError(500, 'Failed to fetch combined restock report: ' . $e->getMessage());
     }
-    
-    sendSuccess([
-        'range' => $range,
-        'start_date' => $startDate,
-        'end_date' => $endDate,
-        'items' => $items,
-        'total_restock_amount' => $totalRestockAmount,
-        'total_quantity' => $totalQuantity,
-        'total_products' => $totalProducts
-    ]);
 }
 
-// ==================== NET PROFIT CALCULATION ====================
+// ==================== STOCK MOVEMENT REPORT ====================
+
+function handleStockMovementReport($userId, $params) {
+    $pdo = getDBConnection();
+    
+    // Set timezone to Pakistan Standard Time (GMT+5)
+    date_default_timezone_set('Asia/Karachi');
+    
+    // Calculate date range in PKT timezone
+    $startDate = $params['start_date'] ?? date('Y-m-d 00:00:00', strtotime('-30 days'));
+    $endDate = $params['end_date'] ?? date('Y-m-d 23:59:59');
+    
+    try {
+        // Get all stock movements (restocks and sales) in the date range
+        $stmt = $pdo->prepare("
+            SELECT 
+                'restock' as type,
+                rt.restock_timestamp as date,
+                rt.booker_name,
+                rt.deliveryman_name,
+                ri.product_name,
+                ri.quantity,
+                ri.cost_per_unit,
+                ri.total_cost
+            FROM restock_transactions rt
+            JOIN restock_items ri ON rt.id = ri.restock_id
+            WHERE rt.user_id = ? AND rt.restock_timestamp BETWEEN ? AND ? AND (rt.deleted_at IS NULL)
+            
+            UNION ALL
+            
+            SELECT 
+                'sale' as type,
+                i.sale_timestamp as date,
+                i.booker_name,
+                i.deliveryman_name,
+                p.name as product_name,
+                ii.quantity,
+                ii.selling_price as cost_per_unit,
+                ii.total
+            FROM invoices i
+            JOIN invoice_items ii ON i.id = ii.invoice_id
+            JOIN products p ON ii.product_id = p.id
+            WHERE i.user_id = ? AND i.sale_timestamp BETWEEN ? AND ? AND i.is_deleted = 0
+            
+            ORDER BY date DESC
+        ");
+        $stmt->execute([$userId, $startDate, $endDate, $userId, $startDate, $endDate]);
+        $movements = $stmt->fetchAll();
+        
+        sendSuccess([
+            'range' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate
+            ],
+            'items' => $movements
+        ]);
+    } catch (Exception $e) {
+        sendError(500, 'Failed to fetch stock movement report: ' . $e->getMessage());
+    }
+}
+
+// ==================== WAREHOUSE STOCK REPORT ====================
+
+function handleWarehouseStockReport($userId, $params) {
+    $pdo = getDBConnection();
+    
+    $warehouseId = $params['warehouse_id'] ?? null;
+    
+    try {
+        if ($warehouseId) {
+            // Get stock for specific warehouse
+            $stmt = $pdo->prepare("
+                SELECT p.name, p.sku, p.stock, p.min_stock, p.cost_price, p.default_selling_price, w.name as warehouse_name
+                FROM products p
+                JOIN warehouse_products wp ON p.id = wp.product_id
+                JOIN warehouses w ON wp.warehouse_id = w.id
+                WHERE p.user_id = ? AND wp.warehouse_id = ? AND p.deleted_at IS NULL
+                ORDER BY p.name ASC
+            ");
+            $stmt->execute([$userId, $warehouseId]);
+        } else {
+            // Get stock for all warehouses
+            $stmt = $pdo->prepare("
+                SELECT p.name, p.sku, p.stock, p.min_stock, p.cost_price, p.default_selling_price, w.name as warehouse_name
+                FROM products p
+                JOIN warehouse_products wp ON p.id = wp.product_id
+                JOIN warehouses w ON wp.warehouse_id = w.id
+                WHERE p.user_id = ? AND p.deleted_at IS NULL
+                ORDER BY w.name ASC, p.name ASC
+            ");
+            $stmt->execute([$userId]);
+        }
+        
+        $stockItems = $stmt->fetchAll();
+        
+        sendSuccess($stockItems);
+    } catch (Exception $e) {
+        sendError(500, 'Failed to fetch warehouse stock report: ' . $e->getMessage());
+    }
+}
+
+// ==================== EXPENSE REPORT ====================
+
+function handleExpenseReport($userId, $params) {
+    $pdo = getDBConnection();
+    
+    // Set timezone to Pakistan Standard Time (GMT+5)
+    date_default_timezone_set('Asia/Karachi');
+    
+    // Calculate date range in PKT timezone
+    $startDate = $params['start_date'] ?? date('Y-m-d 00:00:00', strtotime('-30 days'));
+    $endDate = $params['end_date'] ?? date('Y-m-d 23:59:59');
+    
+    try {
+        // Get all expenses in the date range
+        $stmt = $pdo->prepare("
+            SELECT *
+            FROM expenses
+            WHERE created_by = ? AND created_at BETWEEN ? AND ?
+            ORDER BY created_at DESC
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $expenses = $stmt->fetchAll();
+        
+        // Calculate total expenses
+        $totalExpenses = 0;
+        foreach ($expenses as $expense) {
+            $totalExpenses += $expense['amount'];
+        }
+        
+        sendSuccess([
+            'range' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate
+            ],
+            'items' => $expenses,
+            'total_expenses' => $totalExpenses
+        ]);
+    } catch (Exception $e) {
+        sendError(500, 'Failed to fetch expense report: ' . $e->getMessage());
+    }
+}
+
+// ==================== COMMISSION REPORT ====================
+
+function handleCommissionReport($userId, $params) {
+    $pdo = getDBConnection();
+    
+    // Set timezone to Pakistan Standard Time (GMT+5)
+    date_default_timezone_set('Asia/Karachi');
+    
+    // Calculate date range in PKT timezone
+    $startDate = $params['start_date'] ?? date('Y-m-d 00:00:00', strtotime('-30 days'));
+    $endDate = $params['end_date'] ?? date('Y-m-d 23:59:59');
+    
+    try {
+        // Get all sales with commission information in the date range
+        $stmt = $pdo->prepare("
+            SELECT i.*, 
+                   JSON_ARRAYAGG(
+                     JSON_OBJECT(
+                       'id', ii.id,
+                       'product_id', ii.product_id,
+                       'quantity', ii.quantity,
+                       'selling_price', ii.selling_price,
+                       'total', ii.total
+                     )
+                   ) as items
+            FROM invoices i
+            LEFT JOIN invoice_items ii ON i.id = ii.invoice_id
+            WHERE i.user_id = ? AND i.sale_timestamp BETWEEN ? AND ? AND i.is_deleted = 0
+            GROUP BY i.id
+            ORDER BY i.sale_timestamp DESC
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $invoices = $stmt->fetchAll();
+        
+        // Parse the items JSON for each invoice and calculate commissions
+        $totalSales = 0;
+        $totalCommission = 0;
+        
+        foreach ($invoices as &$invoice) {
+            $invoice['items'] = json_decode($invoice['items'], true);
+            $totalSales += $invoice['final_total_amount'];
+            // Assuming a fixed 5% commission rate for demonstration
+            $invoice['commission'] = $invoice['final_total_amount'] * 0.05;
+            $totalCommission += $invoice['commission'];
+        }
+        
+        sendSuccess([
+            'range' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate
+            ],
+            'items' => $invoices,
+            'total_sales' => $totalSales,
+            'total_commission' => $totalCommission
+        ]);
+    } catch (Exception $e) {
+        sendError(500, 'Failed to fetch commission report: ' . $e->getMessage());
+    }
+}
+
+// ==================== CHALLAN REPORT ====================
+
+function handleChallanReport($userId, $params) {
+    $pdo = getDBConnection();
+    
+    // Set timezone to Pakistan Standard Time (GMT+5)
+    date_default_timezone_set('Asia/Karachi');
+    
+    // Calculate date range in PKT timezone
+    $startDate = $params['start_date'] ?? date('Y-m-d 00:00:00', strtotime('-30 days'));
+    $endDate = $params['end_date'] ?? date('Y-m-d 23:59:59');
+    
+    try {
+        // Get all challans in the date range
+        $stmt = $pdo->prepare("
+            SELECT *
+            FROM challans
+            WHERE created_by = ? AND created_at BETWEEN ? AND ?
+            ORDER BY created_at DESC
+        ");
+        $stmt->execute([$userId, $startDate, $endDate]);
+        $challans = $stmt->fetchAll();
+        
+        sendSuccess([
+            'range' => [
+                'start_date' => $startDate,
+                'end_date' => $endDate
+            ],
+            'items' => $challans
+        ]);
+    } catch (Exception $e) {
+        sendError(500, 'Failed to fetch challan report: ' . $e->getMessage());
+    }
+}
+
+// ==================== P&L REPORT ====================
+
+function handlePnLReport($userId, $params) {
+    $pdo = getDBConnection();
+    
+    $dateFrom = $params['date_from'] ?? date('Y-m-d', strtotime('-30 days'));
+    $dateTo = $params['date_to'] ?? date('Y-m-d');
+    
+    // Revenue (from invoices)
+    $stmt = $pdo->prepare("
+        SELECT COALESCE(SUM(final_total_amount), 0) as revenue
+        FROM invoices
+        WHERE user_id = ? AND is_deleted = 0 
+        AND sale_timestamp >= ? AND sale_timestamp <= ?
+    ");
+    $stmt->execute([$userId, $dateFrom, $dateTo]);
+    $revenue = $stmt->fetch()['revenue'];
+    
+    // COGS (from invoice_items with cost_price_snapshot)
+    $stmt = $pdo->prepare("
+        SELECT COALESCE(SUM(ii.quantity * ii.cost_price_snapshot), 0) as cogs
+        FROM invoice_items ii
+        JOIN invoices i ON ii.invoice_id = i.id
+        WHERE i.user_id = ? AND i.is_deleted = 0
+        AND i.sale_timestamp >= ? AND i.sale_timestamp <= ?
+    ");
+    $stmt->execute([$userId, $dateFrom, $dateTo]);
+    $cogs = $stmt->fetch()['cogs'];
+    
+    // Expenses
+    $stmt = $pdo->prepare("
+        SELECT COALESCE(SUM(amount), 0) as expenses
+        FROM expenses
+        WHERE created_by = ? AND created_at >= ? AND created_at <= ?
+    ");
+    $stmt->execute([$userId, $dateFrom, $dateTo]);
+    $expenses = $stmt->fetch()['expenses'];
+    
+    // Calculate profit
+    $grossProfit = $revenue - $cogs;
+    $netProfit = $grossProfit - $expenses;
+    $grossMargin = $revenue > 0 ? ($grossProfit / $revenue) * 100 : 0;
+    $netMargin = $revenue > 0 ? ($netProfit / $revenue) * 100 : 0;
+    
+    sendSuccess([
+        'date_from' => $dateFrom,
+        'date_to' => $dateTo,
+        'revenue' => (float)$revenue,
+        'cogs' => (float)$cogs,
+        'gross_profit' => (float)$grossProfit,
+        'expenses' => (float)$expenses,
+        'net_profit' => (float)$netProfit,
+        'gross_margin_percent' => round($grossMargin, 2),
+        'net_margin_percent' => round($netMargin, 2)
+    ]);
+}
 
 ?>

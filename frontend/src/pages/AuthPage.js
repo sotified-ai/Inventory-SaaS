@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { auth } from "@/config/firebase";
 import {
-  signInAnonymously 
+  signInAnonymously
 } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,45 +22,44 @@ const AuthPage = () => {
   const handleMySQLLogin = async () => {
     setIsLoading(true);
     try {
-      // Use /api/login instead of /login to match backend routing
-      const response = await fetch(`${BASE_URL}/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
-      });
-      
-      // Handle response properly to avoid "Response body is already used" error
-      const responseClone = response.clone();
-      const responseText = await response.text();
-      
-      // Create a new response object with the consumed body for app use
-      const appResponse = new Response(responseText, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers
+      // Use XMLHttpRequest to bypass rrweb/fetch interception issues
+      const response = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${BASE_URL}/login`);
+        xhr.setRequestHeader("Content-Type", "application/json");
+
+        xhr.onload = () => {
+          resolve({
+            ok: xhr.status >= 200 && xhr.status < 300,
+            text: () => Promise.resolve(xhr.responseText),
+            statusText: xhr.statusText
+          });
+        };
+
+        xhr.onerror = () => reject(new Error("Network request failed"));
+        xhr.send(JSON.stringify({ username, password }));
       });
 
-      if (!appResponse.ok) {
-        const errorText = await appResponse.text();
+      // Read the response body once
+      const responseText = await response.text();
+
+      if (!response.ok) {
         let errorMessage = "Login failed";
         try {
-          const error = JSON.parse(errorText);
+          const error = JSON.parse(responseText);
           errorMessage = error.detail || errorMessage;
         } catch (e) {
-          errorMessage = errorText || errorMessage;
+          errorMessage = responseText || errorMessage;
         }
         throw new Error(errorMessage);
       }
 
-      // Read the body once and parse safely
-      const text = await appResponse.text();
+      // Parse the successful response
       let data;
       try {
-        data = JSON.parse(text);
+        data = JSON.parse(responseText);
       } catch (_) {
-        data = { detail: text };
+        data = { detail: responseText };
       }
       localStorage.setItem("mysql-token", data.token);
       localStorage.setItem("mysql-username", data.username);
