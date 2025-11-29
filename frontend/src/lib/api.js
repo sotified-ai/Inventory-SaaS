@@ -449,6 +449,13 @@ export const customersAPI = {
     });
     return parseResponseJSON(response, 'Failed to delete customer');
   },
+
+  getHistory: async (customerId) => {
+    const response = await safeFetch(`${BASE_URL}/customers/${customerId}/history`, {
+      headers: getAuthHeaders(),
+    });
+    return parseResponseJSON(response, 'Failed to fetch customer history');
+  },
 };
 
 // Brokers API

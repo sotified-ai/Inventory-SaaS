@@ -28,13 +28,13 @@ $env = function($key, $default = null) {
 // define('CORS_ORIGINS', $env('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001'));
 
 // PRODUCTION DATABASE CONFIGURATION (COMMENTED OUT)
-define('DB_NAME', $env('DB_NAME', '****'));
-define('DB_USER', $env('DB_USER', '****'));
-define('DB_PASS', $env('DB_PASSWORD', '!***'));
+define('DB_NAME', $env('DB_NAME', 'realgiveaways_inventory'));
+define('DB_USER', $env('DB_USER', 'realgiveaways_inventory'));
+define('DB_PASS', $env('DB_PASSWORD', '!nv3T0rY'));
 define('DB_HOST', $env('DB_HOST', 'localhost'));
 define('DB_PORT', (int)$env('DB_PORT', 3306));
 define('DB_ENGINE', $env('DB_ENGINE', 'mysql'));
-define('APP_SECRET', $env('APP_SECRET', '****-saas-****-key-change-in-****'));
+define('APP_SECRET', $env('APP_SECRET', 'inventory-saas-secret-key-change-in-production'));
 define('CORS_ORIGINS', $env('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001'));
 
 header('X-Debug-Step: 2-Env-Loaded');
@@ -124,6 +124,13 @@ if (file_exists(__DIR__ . '/phase1_handlers_part3.php')) {
     header('X-Debug-Phase1-Handlers-Part3: Loaded');
 } else {
     header('X-Debug-Phase1-Handlers-Part3: Not-Found');
+}
+
+if (file_exists(__DIR__ . '/customer_handlers.php')) {
+    require_once __DIR__ . '/customer_handlers.php';
+    header('X-Debug-Customer-Handlers: Loaded');
+} else {
+    header('X-Debug-Customer-Handlers: Not-Found');
 }
 header('X-Debug-Step: 5-Handlers-Included');
 
@@ -530,7 +537,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create supplier function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/suppliers/(\d+)$#', $path, $matches) || preg_match('#/api/suppliers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/suppliers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/suppliers/([a-f0-9\-]+)$#', $path, $matches)) {
         $supplierId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetSupplier')) {
@@ -570,7 +577,16 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create customer function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/customers/(\d+)$#', $path, $matches) || preg_match('#/api/customers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/customers/([a-f0-9\-]+)/history$#', $path, $matches) || preg_match('#/api/customers/([a-f0-9\-]+)/history$#', $path, $matches)) {
+        $customerId = $matches[1];
+        if ($requestMethod === 'GET') {
+            if (function_exists('handleGetCustomerHistory')) {
+                handleGetCustomerHistory($userId, $customerId);
+            } else {
+                sendError(500, "Get customer history function not found");
+            }
+        }
+    } elseif (preg_match('#/api\.php/api/customers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/customers/([a-f0-9\-]+)$#', $path, $matches)) {
         $customerId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetCustomer')) {
@@ -610,7 +626,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create broker function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/brokers/(\d+)$#', $path, $matches) || preg_match('#/api/brokers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/brokers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/brokers/([a-f0-9\-]+)$#', $path, $matches)) {
         $brokerId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetBroker')) {
@@ -650,7 +666,7 @@ if ($requestMethod === 'POST' && ($loginPatternMatch || $exactPathMatch)) {
                 sendError(500, "Create driver function not found");
             }
         }
-    } elseif (preg_match('#/api\.php/api/drivers/(\d+)$#', $path, $matches) || preg_match('#/api/drivers/(\d+)$#', $path, $matches)) {
+    } elseif (preg_match('#/api\.php/api/drivers/([a-f0-9\-]+)$#', $path, $matches) || preg_match('#/api/drivers/([a-f0-9\-]+)$#', $path, $matches)) {
         $driverId = $matches[1];
         if ($requestMethod === 'GET') {
             if (function_exists('handleGetDriver')) {
@@ -1288,6 +1304,34 @@ function handleCreateSale($userId, $input) {
     try {
         $pdo->beginTransaction();
         
+        // Handle Customer Linkage
+        $customerId = $input['customer_id'] ?? null;
+        
+        if (!$customerId) {
+            // Try to find existing customer by name
+            $stmt = $pdo->prepare("SELECT id FROM customers WHERE name = ?");
+            $stmt->execute([$input['customer_name']]);
+            $existingCustomer = $stmt->fetch();
+            
+            if ($existingCustomer) {
+                $customerId = $existingCustomer['id'];
+            } else {
+                // Create new customer
+                $customerId = generateUUID();
+                // Generate a simple code if not provided (e.g., CUST-TIMESTAMP)
+                $customerCode = 'CUST-' . time() . '-' . substr($customerId, 0, 4);
+                
+                $stmt = $pdo->prepare("INSERT INTO customers (id, customer_code, name, phone, address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())");
+                $stmt->execute([
+                    $customerId,
+                    $customerCode,
+                    $input['customer_name'],
+                    $input['customer_phone'] ?? null,
+                    $input['customer_address'] ?? null
+                ]);
+            }
+        }
+
         $invoiceId = generateUUID();
         $invoiceNumber = 'INV-' . time() . '-' . substr($invoiceId, 0, 8);
         
@@ -1316,15 +1360,16 @@ function handleCreateSale($userId, $input) {
         
         // Insert invoice
         $stmt = $pdo->prepare("
-            INSERT INTO invoices (id, invoice_number, user_id, customer_name, customer_phone, customer_address, 
+            INSERT INTO invoices (id, invoice_number, user_id, customer_id, customer_name, customer_phone, customer_address, 
                 deliveryman_name, subtotal, total, discount_percentage, final_discount_amount, final_total_amount, sale_timestamp, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())
         ");
         
         $stmt->execute([
             $invoiceId,
             $invoiceNumber,
             $userId,
+            $customerId,
             $input['customer_name'],
             $input['customer_phone'] ?? null,
             $input['customer_address'] ?? null,
@@ -1421,15 +1466,43 @@ function handleUpdateSale($userId, $invoiceId, $input) {
             $stmt->execute([$totalUnits, $item['product_id']]);
         }
         
+        // Handle Customer Linkage
+        $customerId = $input['customer_id'] ?? null;
+        
+        if (!$customerId) {
+            // Try to find existing customer by name
+            $stmt = $pdo->prepare("SELECT id FROM customers WHERE name = ?");
+            $stmt->execute([$input['customer_name']]);
+            $existingCustomer = $stmt->fetch();
+            
+            if ($existingCustomer) {
+                $customerId = $existingCustomer['id'];
+            } else {
+                // Create new customer
+                $customerId = generateUUID();
+                $customerCode = 'CUST-' . time() . '-' . substr($customerId, 0, 4);
+                
+                $stmt = $pdo->prepare("INSERT INTO customers (id, customer_code, name, phone, address, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())");
+                $stmt->execute([
+                    $customerId,
+                    $customerCode,
+                    $input['customer_name'],
+                    $input['customer_phone'] ?? null,
+                    $input['customer_address'] ?? null
+                ]);
+            }
+        }
+
         // Update invoice
         $stmt = $pdo->prepare("
-            UPDATE invoices SET customer_name = ?, customer_phone = ?, customer_address = ?,
+            UPDATE invoices SET customer_id = ?, customer_name = ?, customer_phone = ?, customer_address = ?,
                 deliveryman_name = ?, subtotal = ?, total = ?, discount_percentage = ?,
                 final_discount_amount = ?, final_total_amount = ?, updated_at = NOW()
             WHERE id = ? AND user_id = ?
         ");
         
         $stmt->execute([
+            $customerId,
             $input['customer_name'] ?? null,
             $input['customer_phone'] ?? null,
             $input['customer_address'] ?? null,

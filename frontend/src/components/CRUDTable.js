@@ -16,7 +16,9 @@ const CRUDTable = ({
   getRowKey = (row) => row.id,
   formatRowData = (row) => row,
   validateForm = () => true,
+
   onBeforeSubmit = (data) => data,
+  renderActions,
 }) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -215,18 +217,23 @@ const CRUDTable = ({
                       </td>
                     ))}
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleEdit(item)}
-                        className="text-blue-600 hover:text-blue-900 mr-4"
-                      >
-                        <Edit2 size={18} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(item)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        {renderActions && renderActions(item)}
+                        <button
+                          onClick={() => handleEdit(item)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Edit"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(item)}
+                          className="text-red-600 hover:text-red-900"
+                          title="Delete"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
