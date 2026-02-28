@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { restockAPI, productsAPI } from "@/lib/api";
 import { Plus, Minus, Trash2, Search } from "lucide-react";
 
-const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
+const RestockCart = ({ isOpen, onClose, onRestockComplete, editRestockData }) => {
   const [bookerName, setBookerName] = useState("");
   const [deliverymanName, setDeliverymanName] = useState("");
   const [cartItems, setCartItems] = useState([]);
@@ -20,13 +20,26 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
   const [quantity, setQuantity] = useState(1);
   const [costPerUnit, setCostPerUnit] = useState("");
   const [loading, setLoading] = useState(false);
+  const isEditMode = !!editRestockData;
 
-  // Load products when component mounts
   useEffect(() => {
     if (isOpen) {
       loadProducts();
+      if (isEditMode) {
+        setBookerName(editRestockData.booker_name || "");
+        setDeliverymanName(editRestockData.deliveryman_name || "");
+        setCartItems(editRestockData.items.map(item => ({
+          ...item,
+          id: item.id || Date.now()
+        })));
+      } else {
+        // Reset form for new restock
+        setBookerName("");
+        setDeliverymanName("");
+        setCartItems([]);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, editRestockData, isEditMode]);
 
   const loadProducts = async () => {
     try {
@@ -38,7 +51,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
     }
   };
 
-  // Filter products based on search query
   const filteredProducts = products.filter(product => {
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
@@ -48,7 +60,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
     );
   });
 
-  // Add item to cart
   const addToCart = () => {
     if (!selectedProduct) {
       toast.error("Please select a product");
@@ -68,7 +79,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
     );
 
     if (existingItemIndex >= 0) {
-      // Update existing item
       const updatedItems = [...cartItems];
       updatedItems[existingItemIndex] = {
         ...updatedItems[existingItemIndex],
@@ -77,9 +87,8 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
       };
       setCartItems(updatedItems);
     } else {
-      // Add new item
       const newItem = {
-        id: Date.now(), // Temporary ID for UI
+        id: Date.now(),
         product_id: selectedProduct.id,
         product_name: selectedProduct.name,
         packing_unit: selectedProduct.packing_unit || "",
@@ -90,7 +99,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
       setCartItems([...cartItems, newItem]);
     }
 
-    // Reset form
     setSelectedProduct(null);
     setSearchQuery("");
     setQuantity(1);
@@ -98,7 +106,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
     setShowProductSearch(false);
   };
 
-  // Update item quantity in cart
   const updateItemQuantity = (itemId, newQuantity) => {
     if (newQuantity <= 0) {
       removeItem(itemId);
@@ -118,7 +125,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
     }));
   };
 
-  // Update item cost per unit in cart
   const updateItemCost = (itemId, newCost) => {
     const cost = parseFloat(newCost) || 0;
     setCartItems(cartItems.map(item => {
@@ -133,12 +139,10 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
     }));
   };
 
-  // Remove item from cart
   const removeItem = (itemId) => {
     setCartItems(cartItems.filter(item => item.id !== itemId));
   };
 
-  // Calculate totals
   const calculateTotals = () => {
     return cartItems.reduce(
       (totals, item) => {
@@ -152,7 +156,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
 
   const { totalQuantity, totalCost } = calculateTotals();
 
-  // Finalize restock
   const finalizeRestock = async () => {
     if (cartItems.length === 0) {
       toast.error("Please add at least one item to the cart");
@@ -176,10 +179,17 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
         }))
       };
 
-      await restockAPI.create(restockData);
-      toast.success("Restock completed successfully!");
+      if (isEditMode) {
+        await restockAPI.update(editRestockData.id, restockData);
+        toast.success("Restock updated successfully!");
+      } else {
+        await restockAPI.create(restockData);
+        toast.success("Restock created successfully!");
+      }
+      
       setCartItems([]);
       setBookerName("");
+      setDeliverymanName("");
       onClose();
       if (onRestockComplete) {
         onRestockComplete();
@@ -192,7 +202,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
     }
   };
 
-  // Select product from search
   const selectProduct = (product) => {
     setSelectedProduct(product);
     setSearchQuery(product.name);
@@ -204,14 +213,13 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>New Restock</DialogTitle>
+          <DialogTitle>{isEditMode ? "Edit Restock" : "New Restock"}</DialogTitle>
           <DialogDescription>
-            Add products to restock and finalize the transaction
+            {isEditMode ? "Update the restock details below." : "Add products to restock and finalize the transaction."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* Booker Name */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="booker-name">Booker Name</Label>
@@ -233,14 +241,12 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
             </div>
           </div>
 
-          {/* Product Search and Add Form */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Add Product to Restock</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                {/* Product Search */}
                 <div className="md:col-span-2 relative">
                   <Label>Product</Label>
                   <div className="relative">
@@ -256,7 +262,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
                     <Search className="absolute right-3 top-3 h-4 w-4 text-gray-400" />
                   </div>
 
-                  {/* Product Search Dropdown */}
                   {showProductSearch && searchQuery.trim() && (
                     <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
                       {filteredProducts.length > 0 ? (
@@ -283,7 +288,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
                   )}
                 </div>
 
-                {/* Quantity */}
                 <div>
                   <Label>Quantity</Label>
                   <Input
@@ -294,7 +298,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
                   />
                 </div>
 
-                {/* Cost per Unit */}
                 <div>
                   <Label>Cost per Unit (PKR)</Label>
                   <Input
@@ -307,14 +310,12 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
                 </div>
               </div>
 
-              {/* Selected Product Info */}
               {selectedProduct && (
                 <div className="text-sm text-gray-600">
                   Selected: {selectedProduct.name} (SKU: {selectedProduct.sku})
                 </div>
               )}
 
-              {/* Add to Cart Button */}
               <Button onClick={addToCart} className="w-full">
                 <Plus className="w-4 h-4 mr-2" />
                 Add to Cart
@@ -322,7 +323,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
             </CardContent>
           </Card>
 
-          {/* Restock Cart */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Restock Cart</CardTitle>
@@ -401,7 +401,6 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
                     </TableBody>
                   </Table>
 
-                  {/* Cart Totals */}
                   <div className="border-t pt-4">
                     <div className="flex justify-end space-y-2">
                       <div className="w-64 space-y-2">
@@ -427,7 +426,7 @@ const RestockCart = ({ isOpen, onClose, onRestockComplete }) => {
             Cancel
           </Button>
           <Button onClick={finalizeRestock} disabled={loading || cartItems.length === 0}>
-            {loading ? "Processing..." : "Finalize Restock"}
+            {loading ? "Processing..." : (isEditMode ? "Update Restock" : "Finalize Restock")}
           </Button>
         </DialogFooter>
       </DialogContent>

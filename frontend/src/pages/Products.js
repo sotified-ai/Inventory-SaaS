@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/table";
 import { productsAPI, categoriesAPI, restockAPI, isUsingMySQL } from "@/lib/api";
 import RestockCart from "@/components/RestockCart";
+import { formatNumber } from "@/lib/utils";
 
 const Products = () => {
   const location = useLocation();
@@ -567,8 +568,8 @@ const Products = () => {
         <CardHeader>
           <CardTitle>All Products</CardTitle>
           <CardDescription>
-            {filter === 'low-stock' 
-              ? `${products.filter(p => p.stock <= p.min_stock).length} low stock product${products.filter(p => p.stock <= p.min_stock).length !== 1 ? "s" : ""}` 
+            {filter === 'low-stock'
+              ? `${products.filter(p => p.stock <= p.min_stock).length} low stock product${products.filter(p => p.stock <= p.min_stock).length !== 1 ? "s" : ""}`
               : `${products.length} product${products.length !== 1 ? "s" : ""}`} in inventory
           </CardDescription>
         </CardHeader>
@@ -606,15 +607,14 @@ const Products = () => {
                             : "-"}
                         </TableCell>
                         <TableCell>{product.packing_unit || "-"}</TableCell>
-                        <TableCell>PKR {product.selling_price.toFixed(2)}</TableCell>
-                        <TableCell>PKR {product.cost_price.toFixed(2)}</TableCell>
+                        <TableCell>PKR {formatNumber(product.selling_price || 0)}</TableCell>
+                        <TableCell>PKR {formatNumber(product.cost_price || 0)}</TableCell>
                         <TableCell>
                           <span
-                            className={`font-medium ${
-                              product.stock < product.min_stock
-                                ? "text-orange-600"
-                                : "text-green-600"
-                            }`}
+                            className={`font-medium ${product.stock < product.min_stock
+                              ? "text-orange-600"
+                              : "text-green-600"
+                              }`}
                           >
                             {product.stock}
                           </span>
@@ -877,8 +877,8 @@ const Products = () => {
           </form>
         </DialogContent>
       </Dialog>
-      <RestockCart 
-        isOpen={isRestockCartOpen} 
+      <RestockCart
+        isOpen={isRestockCartOpen}
         onClose={() => setIsRestockCartOpen(false)}
         onRestockComplete={fetchProducts}
       />

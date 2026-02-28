@@ -24,8 +24,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { productsAPI, salesAPI, categoriesAPI, isUsingMySQL } from "@/lib/api";
+import { productsAPI, salesAPI, categoriesAPI, customersAPI, driversAPI, isUsingMySQL } from "@/lib/api";
 import { SYSTEM_NAME } from "@/App";
+import { formatNumber } from "@/lib/utils";
+import SearchableSelect from "@/components/SearchableSelect";
+
+// Helper function to safely convert values to numbers before calling toFixed
+const safeNumber = (value, fallback = 0) => {
+  const num = parseFloat(value);
+  return isNaN(num) ? fallback : num;
+};
 
 const NewSale = () => {
   const location = useLocation();
@@ -49,6 +57,10 @@ const NewSale = () => {
   const [itemDiscount, setItemDiscount] = useState(0);
   const [bonusQuantity, setBonusQuantity] = useState(0);
   const [finalDiscountPercent, setFinalDiscountPercent] = useState(0);
+  const [customerOptions, setCustomerOptions] = useState([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [driverOptions, setDriverOptions] = useState([]);
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
   const dropdownRef = useRef(null); // Ref for dropdown container
   const API_BASE = `${process.env.REACT_APP_BACKEND_URL}/api`;
   const getDevToken = () => {
@@ -58,6 +70,123 @@ const NewSale = () => {
       localStorage.setItem("dev-user-id", id);
     }
     return id;
+  };
+
+  // Fetch customers for autocomplete
+  const fetchCustomers = async (searchTerm = '') => {
+    if (!isUsingMySQL()) return;
+
+    setLoadingCustomers(true);
+    try {
+      const allCustomers = await customersAPI.getAll();
+      const filtered = allCustomers.filter(customer =>
+        customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (customer.phone && customer.phone.includes(searchTerm))
+      );
+      setCustomerOptions(filtered);
+    } catch (error) {
+      console.error("Failed to fetch customers:", error);
+    } finally {
+      setLoadingCustomers(false);
+    }
+  };
+
+  // Handle customer selection
+  const handleCustomerSelect = (customer) => {
+    if (customer) {
+      setCustomerName(customer.name || '');
+      setCustomerPhone(customer.phone || '');
+      setCustomerAddress(customer.address || '');
+    } else {
+      setCustomerName('');
+      setCustomerPhone('');
+      setCustomerAddress('');
+    }
+  };
+
+  // Handle customer search input
+  const handleCustomerSearch = (searchTerm) => {
+    // If the search term looks like a phone number, search by phone
+    if (searchTerm && /^\d+$/.test(searchTerm)) {
+      const foundCustomer = customerOptions.find(c => c.phone === searchTerm);
+      if (foundCustomer) {
+        handleCustomerSelect(foundCustomer);
+        return;
+      }
+    }
+    fetchCustomers(searchTerm);
+  };
+
+  // Create new customer
+  const createNewCustomer = async (name) => {
+    if (!isUsingMySQL()) return;
+
+    try {
+      const newCustomer = await customersAPI.create({
+        name,
+        customer_code: `CUST-${Date.now()}`,
+        phone: '',
+        address: ''
+      });
+      setCustomerOptions([...customerOptions, newCustomer]);
+      handleCustomerSelect(newCustomer);
+      toast.success("Customer created successfully");
+    } catch (error) {
+      console.error("Failed to create customer:", error);
+      toast.error("Failed to create customer");
+    }
+  };
+
+  // Fetch drivers for autocomplete
+  const fetchDrivers = async (searchTerm = '') => {
+    if (!isUsingMySQL()) return;
+
+    setLoadingDrivers(true);
+    try {
+      const allDrivers = await driversAPI.getAll();
+      const filtered = allDrivers.filter(driver =>
+        driver.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (driver.phone && driver.phone.includes(searchTerm))
+      );
+      setDriverOptions(filtered);
+    } catch (error) {
+      console.error("Failed to fetch drivers:", error);
+    } finally {
+      setLoadingDrivers(false);
+    }
+  };
+
+  // Handle driver selection
+  const handleDriverSelect = (driver) => {
+    if (driver) {
+      setDeliverymanName(driver.name || '');
+    } else {
+      setDeliverymanName('');
+    }
+  };
+
+  // Handle driver search input
+  const handleDriverSearch = (searchTerm) => {
+    fetchDrivers(searchTerm);
+  };
+
+  // Create new driver
+  const createNewDriver = async (name) => {
+    if (!isUsingMySQL()) return;
+
+    try {
+      const newDriver = await driversAPI.create({
+        name,
+        phone: '',
+        vehicle_number: ''
+      });
+      setDriverOptions([...driverOptions, newDriver]);
+      handleDriverSelect(newDriver);
+      toast.success("Driver created successfully");
+    } catch (error) {
+      console.error("Failed to create driver:", error);
+      toast.error("Failed to create driver");
+    }
   };
 
   // Handle click outside to close dropdown
@@ -77,7 +206,9 @@ const NewSale = () => {
   useEffect(() => {
     fetchProducts();
     fetchCategories(); // Fetch categories for display
-    
+    fetchCustomers(); // Fetch customers for autocomplete
+    fetchDrivers(); // Fetch drivers for autocomplete
+
     // Check if we're editing a sale from navigation state
     if (location.state?.editInvoice) {
       const invoiceToEdit = location.state.editInvoice;
@@ -108,11 +239,11 @@ const NewSale = () => {
       setLoading(false);
     }
   };
-  
+
   const fetchCategories = async () => {
     const usingMySQL = isUsingMySQL();
     if (!usingMySQL) return;
-    
+
     try {
       const data = await categoriesAPI.getAll();
       setCategories(data);
@@ -121,7 +252,7 @@ const NewSale = () => {
       // Categories are optional, don't show error
     }
   };
-  
+
   const loadInvoiceForEditing = async (invoice) => {
     setEditingSaleId(invoice.id || invoice.invoiceId);
     setOriginalSaleItems(invoice.items || []);
@@ -129,28 +260,31 @@ const NewSale = () => {
     setCustomerPhone(invoice.customer_phone || "");
     setCustomerAddress(invoice.customer_address || "");
     setDeliverymanName(invoice.deliveryman_name || "");
-    
+
     // CRITICAL FIX: Restore discount percentage when editing
     // Support multiple field name variations for compatibility
     const discountPercent = invoice.discount_percentage || invoice.final_discount_percent || invoice.discountPercentage || 0;
     setFinalDiscountPercent(discountPercent);
-    
+
     // In Firebase mode, we DON'T reverse inventory immediately
     // Instead, we'll do it atomically during re-finalization
     setInventoryReversed(true);
     toast.info("Editing mode: Stock will be adjusted when you re-finalize the sale.");
-    
+
     // Wait for products to be fetched, then populate cart
     setTimeout(() => {
       populateCartFromInvoice(invoice);
     }, 500);
   };
-  
+
   const populateCartFromInvoice = (invoice) => {
-    const cartItems = invoice.items.map((item) => {
+    // Ensure the array exists, even if the backend returns null
+    const items = invoice.items || [];
+
+    const cartItems = items.map((item) => {
       const productId = item.product_id || item.productId;
       const product = products.find((p) => p.id === productId);
-      
+
       if (!product) {
         // Create a temporary product object if not found
         return {
@@ -166,7 +300,7 @@ const NewSale = () => {
           bonus_quantity: item.bonus_quantity || 0,
         };
       }
-      
+
       return {
         product,
         quantity: item.quantity || 1,
@@ -174,7 +308,7 @@ const NewSale = () => {
         bonus_quantity: item.bonus_quantity || 0,
       };
     });
-    
+
     setCart(cartItems);
   };
 
@@ -188,13 +322,13 @@ const NewSale = () => {
     if (!product) return;
 
     const existingItem = cart.find((item) => item.product.id === selectedProductId);
-    
+
     // Calculate available stock for this session
     let availableStock = product.stock;
-    
+
     // In edit mode, account for the original quantity that will be released
     if (editingSaleId) {
-      const originalItem = originalSaleItems.find(item => 
+      const originalItem = originalSaleItems.find(item =>
         (item.product_id || item.productId) === selectedProductId
       );
       if (originalItem) {
@@ -233,29 +367,29 @@ const NewSale = () => {
     setBonusQuantity(0);
     toast.success("Added to cart");
   };
-  
+
   // Filter products based on search query (by name or SKU)
   const getFilteredProducts = () => {
     if (!productSearchQuery.trim()) {
       return products.filter(p => p.stock > 0 || editingSaleId);
     }
-    
+
     const query = productSearchQuery.toLowerCase();
     return products
       .filter(p => p.stock > 0 || editingSaleId)
-      .filter(p => 
-        p.name.toLowerCase().includes(query) || 
+      .filter(p =>
+        p.name.toLowerCase().includes(query) ||
         (p.sku && p.sku.toLowerCase().includes(query))
       );
   };
-  
+
   // Get category name by ID
   const getCategoryName = (categoryId) => {
     if (!categoryId) return null;
     const category = categories.find(c => c.id === categoryId);
     return category ? category.name : null;
   };
-  
+
   // Select product from search results
   const selectProductFromSearch = (product) => {
     setSelectedProductId(product.id);
@@ -265,18 +399,18 @@ const NewSale = () => {
 
   const updateCartQuantity = (productId, newQuantity) => {
     const product = products.find((p) => p.id === productId);
-    
+
     if (newQuantity <= 0) {
       removeFromCart(productId);
       return;
     }
-    
+
     // Calculate available stock for this edit session
     let availableStock = product.stock;
-    
+
     // In edit mode, account for the original quantity that will be released
     if (editingSaleId) {
-      const originalItem = originalSaleItems.find(item => 
+      const originalItem = originalSaleItems.find(item =>
         (item.product_id || item.productId) === productId
       );
       if (originalItem) {
@@ -285,7 +419,7 @@ const NewSale = () => {
         availableStock += originalTotalUnits;
       }
     }
-    
+
     if (newQuantity > availableStock) {
       toast.error(`Insufficient stock. Available: ${availableStock}`);
       return;
@@ -349,15 +483,27 @@ const NewSale = () => {
       return;
     }
 
+    // Validate customer name is present
     if (!customerName.trim()) {
       toast.error("Customer name is required");
       return;
     }
 
+    // Validate each item has sufficient stock
+    for (const item of cart) {
+      const product = products.find((p) => p.id === item.product.id);
+      if (!product) continue;
+
+      if (item.quantity > product.stock) {
+        toast.error(`Insufficient stock for ${product.name}. Available: ${product.stock}, Required: ${item.quantity}`);
+        return;
+      }
+    }
+
     try {
       const { subtotal, percent, finalDiscountAmount, total } = calculateFinalTotals();
       const usingMySQL = isUsingMySQL();
-      
+
       if (usingMySQL) {
         // Calculate totals for each item first
         const itemsWithTotals = cart.map((item) => {
@@ -403,7 +549,7 @@ const NewSale = () => {
           id: invoiceData.id,
           invoiceId: invoiceData.invoice_number,
           invoice_number: invoiceData.invoice_number,
-          items: invoiceData.items.map((item) => ({
+          items: (invoiceData.items || []).map((item) => ({
             product_id: item.product_id,
             productId: item.product_id,
             product_name: item.product_name,
@@ -438,7 +584,7 @@ const NewSale = () => {
       } else {
         const user = auth.currentUser;
         if (!user) return;
-        
+
         // Three-step atomic transaction: Reverse → Apply New → Update Record
         const result = await runTransaction(firestore, async (transaction) => {
           // STEP 1: Reverse original inventory (if editing)
@@ -446,50 +592,50 @@ const NewSale = () => {
             for (const item of originalSaleItems) {
               const productId = item.product_id || item.productId;
               if (!productId) continue;
-              
+
               const productDocRef = doc(firestore, `users/${user.uid}/products`, productId);
               const productDoc = await transaction.get(productDocRef);
-              
+
               if (!productDoc.exists()) {
                 throw new Error(`Product ${item.name || productId} not found`);
               }
-              
+
               const currentStock = productDoc.data().stock;
               const reversedStock = currentStock + item.quantity;
-              
+
               transaction.update(productDocRef, { stock: reversedStock });
             }
           }
-          
+
           // STEP 2: Validate and apply new quantities
           const stockValidation = [];
-          
+
           for (const item of cart) {
             const productDocRef = doc(firestore, `users/${user.uid}/products`, item.product.id);
             const productDoc = await transaction.get(productDocRef);
-            
+
             if (!productDoc.exists()) {
               throw new Error(`Product ${item.product.name} not found`);
             }
-            
+
             const currentStock = productDoc.data().stock;
             const newStock = currentStock - item.quantity;
-            
+
             if (newStock < 0) {
               throw new Error(`Insufficient stock for ${item.product.name}. Available: ${currentStock}, Required: ${item.quantity}`);
             }
-            
+
             stockValidation.push({
               ref: productDocRef,
               newStock,
             });
           }
-          
+
           // Apply stock updates
           for (const update of stockValidation) {
             transaction.update(update.ref, { stock: update.newStock });
           }
-          
+
           // STEP 3: Update or create the invoice record with enforced data structure
           const saleData = {
             // Unified Data Model (1.1)
@@ -515,9 +661,9 @@ const NewSale = () => {
             customer_address: customerAddress || null,
             deliveryman_name: deliverymanName || null,
           };
-          
+
           let saleDocRef;
-          
+
           if (editingSaleId) {
             // UPDATE existing sale - do NOT create new record
             saleDocRef = doc(firestore, `users/${user.uid}/sales`, editingSaleId);
@@ -533,10 +679,10 @@ const NewSale = () => {
             saleData.invoiceId = saleDocRef.id;
             transaction.set(saleDocRef, saleData);
           }
-          
+
           return { saleDocRef, saleData };
         });
-        
+
         // Build invoice for display with unified structure
         const invoiceData = {
           id: editingSaleId || result.saleDocRef.id,
@@ -570,7 +716,7 @@ const NewSale = () => {
           customer_address: customerAddress || null,
           deliveryman_name: deliverymanName || null,
         };
-        
+
         setInvoice(invoiceData);
         toast.success(editingSaleId ? "Sale re-finalized successfully!" : "Sale completed successfully!");
         resetSaleForm();
@@ -581,7 +727,7 @@ const NewSale = () => {
       toast.error(error.message || "Failed to complete sale");
     }
   };
-  
+
   const resetSaleForm = () => {
     setCart([]);
     setCustomerName("");
@@ -597,7 +743,152 @@ const NewSale = () => {
   };
 
   const printInvoice = () => {
-    window.print();
+    const printContent = document.querySelector('.print-area').innerHTML;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow popups to print invoices');
+      return;
+    }
+
+    const styles = `
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          padding: 40px;
+          max-width: 800px;
+          margin: 0 auto;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 30px;
+          border-bottom: 2px solid #333;
+          padding-bottom: 20px;
+        }
+        .invoice-title {
+          font-size: 32px;
+          font-weight: bold;
+          color: #333;
+        }
+        .invoice-info {
+          font-size: 14px;
+          color: #666;
+          line-height: 1.6;
+        }
+        .customer-details {
+          margin: 20px 0;
+          padding: 15px;
+          background-color: #f9f9f9;
+          border-left: 3px solid #333;
+        }
+        .customer-details h3 {
+          margin: 0 0 10px 0;
+          font-size: 16px;
+          color: #333;
+        }
+        .customer-details p {
+          margin: 5px 0;
+          font-size: 14px;
+          color: #666;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 20px 0;
+        }
+        th {
+          background-color: #f5f5f5;
+          padding: 12px;
+          text-align: left;
+          border-bottom: 2px solid #ddd;
+          font-weight: 600;
+        }
+        td {
+          padding: 10px 12px;
+          border-bottom: 1px solid #eee;
+        }
+        .text-right {
+          text-align: right;
+        }
+        .totals {
+          margin-top: 30px;
+          float: right;
+          width: 300px;
+        }
+        .totals-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 8px 0;
+        }
+        .totals-row.discount {
+          color: #d32f2f;
+        }
+        .totals-row.total {
+          border-top: 2px solid #333;
+          font-weight: bold;
+          font-size: 18px;
+          margin-top: 10px;
+          padding-top: 10px;
+        }
+        .footer {
+          clear: both;
+          text-align: center;
+          margin-top: 60px;
+          padding-top: 20px;
+          border-top: 1px solid #ddd;
+          color: #666;
+          font-size: 14px;
+        }
+        .print-timestamp {
+          position: absolute;
+          top: 20px;
+          right: 20px;
+          font-size: 12px;
+          color: #666;
+        }
+        .no-print {
+          display: none;
+        }
+        @media print {
+          body { padding: 20px; }
+          .no-print { display: none !important; }
+        }
+      </style>
+    `;
+
+    const fullContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Invoice</title>
+          ${styles}
+        </head>
+        <body>
+          <div class="print-timestamp">
+            Printed on: ${new Date().toLocaleString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    })}
+          </div>
+          ${printContent}
+          <script>
+            window.onload = function() {
+              window.print();
+              window.onafterprint = function() {
+                window.close();
+              };
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(fullContent);
+    printWindow.document.close();
   };
 
   const startNewSale = () => {
@@ -615,7 +906,7 @@ const NewSale = () => {
 
   if (invoice) {
     const skipLoginFlag = localStorage.getItem("skip-login") === "true";
-    
+
     // Helper function to format date as dd/mm/yyyy
     const formatDate = (dateString) => {
       const date = new Date(dateString);
@@ -624,7 +915,25 @@ const NewSale = () => {
       const year = date.getFullYear();
       return `${day}/${month}/${year}`;
     };
-    
+
+    // Helper function to format date and time for printing
+    const formatPrintDateTime = () => {
+      const now = new Date();
+      const day = String(now.getDate()).padStart(2, '0');
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const year = now.getFullYear();
+
+      // Format time in 12-hour format with AM/PM
+      let hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12; // the hour '0' should be '12'
+      const formattedHours = String(hours).padStart(2, '0');
+
+      return `${day}/${month}/${year} ${formattedHours}:${minutes} ${ampm}`;
+    };
+
     return (
       <div className="space-y-6" data-testid="invoice-view">
         <div className="flex justify-between items-center no-print">
@@ -646,12 +955,12 @@ const NewSale = () => {
                 // Clear invoice state first to avoid navigation issues
                 const invoiceToEdit = { ...invoice };
                 setInvoice(null);
-                
+
                 // Navigate with a clean state
                 setTimeout(() => {
-                  navigate("/new-sale", { 
+                  navigate("/new-sale", {
                     state: { editInvoice: invoiceToEdit },
-                    replace: true 
+                    replace: true
                   });
                 }, 0);
               }}
@@ -706,6 +1015,9 @@ const NewSale = () => {
               <div className="text-right">
                 <p className="text-sm text-gray-600">From:</p>
                 <p className="font-semibold">{auth.currentUser?.email}</p>
+                <div className="print-timestamp no-print" style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
+                  Printed on: {formatPrintDateTime()}
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -733,10 +1045,10 @@ const NewSale = () => {
                         <td className="text-right py-3 px-2">{item.bonus_quantity || 0}</td>
                         <td className="text-right py-3 px-2 font-semibold">{item.quantity + (item.bonus_quantity || 0)}</td>
                         <td className="text-right py-3 px-2">
-                          PKR {(item.unit_price || item.pricePerUnit || 0).toFixed(2)}
+                          PKR {formatNumber(item.unit_price || item.pricePerUnit)}
                         </td>
                         <td className="text-right py-3 px-2 font-medium">
-                          PKR {(item.total || item.totalLinePrice || 0).toFixed(2)}
+                          PKR {formatNumber(item.total || item.totalLinePrice)}
                         </td>
                       </tr>
                     ))}
@@ -749,17 +1061,17 @@ const NewSale = () => {
                   <div className="w-64">
                     <div className="flex justify-between py-2">
                       <span className="text-gray-600">Subtotal:</span>
-                      <span className="font-medium">PKR {invoice.subtotal.toFixed(2)}</span>
+                      <span className="font-medium">PKR {formatNumber(invoice.subtotal)}</span>
                     </div>
                     {(invoice.final_discount_percent > 0 || invoice.discountPercentage > 0) && (
                       <div className="flex justify-between py-2">
                         <span className="text-gray-600">Discount ({invoice.final_discount_percent || invoice.discountPercentage}%):</span>
-                        <span className="font-medium text-red-600">-PKR {(invoice.final_discount_amount || invoice.finalDiscountAmount || 0).toFixed(2)}</span>
+                        <span className="font-medium text-red-600">-PKR {formatNumber(invoice.final_discount_amount || invoice.finalDiscountAmount)}</span>
                       </div>
                     )}
                     <div className="flex justify-between py-2 border-t font-bold text-lg">
                       <span>Total:</span>
-                      <span data-testid="invoice-total">PKR {(invoice.total || invoice.finalTotalAmount || 0).toFixed(2)}</span>
+                      <span data-testid="invoice-total">PKR {formatNumber(invoice.total || invoice.finalTotalAmount)}</span>
                     </div>
                   </div>
                 </div>
@@ -814,123 +1126,135 @@ const NewSale = () => {
               <CardTitle>Add Products</CardTitle>
               <CardDescription>Select products to add to the cart</CardDescription>
             </CardHeader>
-          <CardContent>
-            <div className="mb-4">
-              <Label>Customer Name</Label>
-              <Input
-                type="text"
-                placeholder="Enter customer name"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                data-testid="customer-name-input"
-              />
-            </div>
-            <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Mobile Number (optional)</Label>
-                <Input
-                  type="tel"
-                  placeholder="Enter mobile number"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  data-testid="customer-phone-input"
+            <CardContent>
+              <div className="mb-4">
+                <SearchableSelect
+                  value={customerName ? { name: customerName, phone: customerPhone, address: customerAddress } : null}
+                  onChange={handleCustomerSelect}
+                  options={customerOptions}
+                  placeholder="Search customer by name or phone number"
+                  label="Customer"
+                  searchBy={['name', 'phone']}
+                  displayField="name"
+                  onInputChange={handleCustomerSearch}
+                  loading={loadingCustomers}
+                  allowNew={true}
+                  onCreateNew={createNewCustomer}
                 />
               </div>
-              <div>
-                <Label>Address (optional)</Label>
-                <Input
-                  type="text"
-                  placeholder="Enter address"
-                  value={customerAddress}
-                  onChange={(e) => setCustomerAddress(e.target.value)}
-                  data-testid="customer-address-input"
+              <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label>Mobile Number (optional)</Label>
+                  <Input
+                    type="tel"
+                    placeholder="Enter mobile number"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    data-testid="customer-phone-input"
+                    readOnly={!!customerName}
+                  />
+                </div>
+                <div>
+                  <Label>Address (optional)</Label>
+                  <Input
+                    type="text"
+                    placeholder="Enter address"
+                    value={customerAddress}
+                    onChange={(e) => setCustomerAddress(e.target.value)}
+                    data-testid="customer-address-input"
+                    readOnly={!!customerName}
+                  />
+                </div>
+              </div>
+              <div className="mb-4">
+                <Label>Delivery Man</Label>
+                <SearchableSelect
+                  options={driverOptions}
+                  onChange={handleDriverSelect}
+                  onInputChange={handleDriverSearch}
+                  onCreateNew={createNewDriver}
+                  placeholder="Search or add Delivery Man"
+                  loading={loadingDrivers}
+                  value={deliverymanName ? { name: deliverymanName } : null}
+                  searchBy={['name']}
+                  displayField="name"
                 />
               </div>
-            </div>
-            <div className="mb-4">
-              <Label>Deliveryman Name (optional)</Label>
-              <Input
-                type="text"
-                placeholder="Enter deliveryman name"
-                value={deliverymanName}
-                onChange={(e) => setDeliverymanName(e.target.value)}
-                data-testid="deliveryman-name-input"
-              />
-            </div>
-            <div className="flex gap-4">
-              <div className="flex-1 relative" ref={dropdownRef}>
-                <Label>Product (Search by name or SKU)</Label>
-                <Input
-                  type="text"
-                  placeholder="Type to search products..."
-                  value={productSearchQuery}
-                  onChange={(e) => {
-                    setProductSearchQuery(e.target.value);
-                    setShowProductDropdown(true);
-                  }}
-                  onFocus={() => setShowProductDropdown(true)}
-                  data-testid="product-search-input"
-                  className="w-full"
-                />
-                {showProductDropdown && productSearchQuery.trim() && (
-                  <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                    {getFilteredProducts().length > 0 ? (
-                      getFilteredProducts().map((product) => {
-                        const categoryName = getCategoryName(product.category_id);
-                        return (
-                          <div
-                            key={product.id}
-                            onClick={() => selectProductFromSearch(product)}
-                            className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100"
-                            data-testid={`product-search-result-${product.id}`}
-                          >
-                            <div className="font-medium text-sm">
-                              {product.name}
-                              {categoryName && (
-                                <span className="ml-2 text-xs text-gray-500">
-                                  (Category: {categoryName})
-                                </span>
-                              )}
+
+              <div className="flex gap-4">
+                <div className="flex-1 relative" ref={dropdownRef}>
+                  <Label>Product (Search by name or SKU)</Label>
+                  <Input
+                    type="text"
+                    placeholder="Type to search products..."
+                    value={productSearchQuery}
+                    onChange={(e) => {
+                      setProductSearchQuery(e.target.value);
+                      setShowProductDropdown(true);
+                    }}
+                    onFocus={() => setShowProductDropdown(true)}
+                    data-testid="product-search-input"
+                    className="w-full"
+                  />
+                  {showProductDropdown && productSearchQuery.trim() && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {getFilteredProducts().length > 0 ? (
+                        getFilteredProducts().map((product) => {
+                          const categoryName = getCategoryName(product.category_id);
+                          return (
+                            <div
+                              key={product.id}
+                              onClick={() => selectProductFromSearch(product)}
+                              className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100"
+                              data-testid={`product-search-result-${product.id}`}
+                            >
+                              <div className="font-medium text-sm">
+                                {product.name}
+                                {categoryName && (
+                                  <span className="ml-2 text-xs text-gray-500">
+                                    (Category: {categoryName})
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-600">
+                                SKU: {product.sku} | PKR {formatNumber(product.selling_price)} |
+                                {Number(product.stock) === 0 ?
+                                  <span className="text-red-500 font-bold">Out of Stock</span> :
+                                  <span>Stock: {product.stock}</span>
+                                }
+                              </div>
                             </div>
-                            <div className="text-xs text-gray-600">
-                              SKU: {product.sku} | PKR {(product.selling_price ?? 0).toFixed(2)} | 
-                              {product.stock === 0 ? 
-                                <span className="text-red-500 font-bold">Out of Stock</span> : 
-                                <span>Stock: {product.stock}</span>
-                              }
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="px-4 py-3 text-sm text-gray-500">
-                        No products found matching "{productSearchQuery}"
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="w-32">
-                <Label>Quantity</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  data-testid="quantity-input"
-                  value={quantity}
-                  onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                />
-              </div>
-              <div className="w-32">
-                <Label>Bonus Qty</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  data-testid="bonus-quantity-input"
-                  value={bonusQuantity}
-                  onChange={(e) => setBonusQuantity(parseInt(e.target.value) || 0)}
-                />
-              </div>
-           {/*    <div className="w-40">
+                          );
+                        })
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-gray-500">
+                          No products found matching "{productSearchQuery}"
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="w-32">
+                  <Label>Quantity</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    data-testid="quantity-input"
+                    value={quantity}
+                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                  />
+                </div>
+                <div className="w-32">
+                  <Label>Bonus Qty</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    data-testid="bonus-quantity-input"
+                    value={bonusQuantity}
+                    onChange={(e) => setBonusQuantity(parseInt(e.target.value) || 0)}
+                  />
+                </div>
+                {/*    <div className="w-40">
                 <Label>Discount (amount)</Label>
                 <Input
                   type="number"
@@ -941,13 +1265,13 @@ const NewSale = () => {
                   onChange={(e) => setItemDiscount(e.target.value)}
                 />
               </div> */}
-              <div className="flex items-end">
-                <Button onClick={addToCart} data-testid="add-to-cart-button" className="flex items-center space-x-2">
-                  <Plus className="w-4 h-4" />
-                  <span>Add</span>
-                </Button>
+                <div className="flex items-end">
+                  <Button onClick={addToCart} data-testid="add-to-cart-button" className="flex items-center space-x-2">
+                    <Plus className="w-4 h-4" />
+                    <span>Add</span>
+                  </Button>
+                </div>
               </div>
-            </div>
 
               {products.filter(p => p.stock > 0 || editingSaleId).length === 0 && (
                 <div className="text-center py-8 text-gray-500">
@@ -990,7 +1314,7 @@ const NewSale = () => {
                               )}
                             </p>
                             <p className="text-xs text-gray-600">
-                              PKR {(item.product.selling_price ?? 0).toFixed(2)} each
+                              PKR {formatNumber(item.product.selling_price)} each
                             </p>
                             <div className="mt-2 flex items-center gap-3">
                               <div className="flex items-center gap-2">
@@ -1008,7 +1332,7 @@ const NewSale = () => {
                                 Total Units: <span className="text-blue-600">{item.quantity + (item.bonus_quantity || 0)}</span>
                               </div>
                             </div>
-                           {/*  <div className="mt-2 flex items-center space-x-2">
+                            {/*  <div className="mt-2 flex items-center space-x-2">
                               <Label className="text-xs">Discount:</Label>
                               <Input
                                 className="h-7 w-24"
@@ -1067,7 +1391,7 @@ const NewSale = () => {
                     <div className="border-t pt-4 space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Subtotal:</span>
-                        <span className="font-medium">PKR {calculateSubtotal().toFixed(2)}</span>
+                        <span className="font-medium">PKR {formatNumber(calculateSubtotal())}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-gray-600">Final Discount (%):</span>
@@ -1083,13 +1407,13 @@ const NewSale = () => {
                             data-testid="final-discount-percent-input"
                           />
                           <span className="text-gray-600">
-                            -PKR {(calculateFinalTotals().finalDiscountAmount).toFixed(2)}
+                            -PKR {formatNumber(calculateFinalTotals().finalDiscountAmount)}
                           </span>
                         </div>
                       </div>
                       <div className="flex justify-between font-bold text-lg">
                         <span>Total:</span>
-                        <span data-testid="cart-total">PKR {calculateFinalTotals().total.toFixed(2)}</span>
+                        <span data-testid="cart-total">PKR {formatNumber(calculateFinalTotals().total)}</span>
                       </div>
                     </div>
 

@@ -5,18 +5,26 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { restockAPI } from "@/lib/api";
-import { PackagePlus, Printer } from "lucide-react";
+import { PackagePlus, Edit, Trash2, Calendar as CalendarIcon } from "lucide-react";
 import CombinedRestockSlip from "@/components/CombinedRestockSlip";
+import RestockCart from "@/components/RestockCart";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+import { formatNumber } from "@/lib/utils";
 
 const RestockTransactions = () => {
   const navigate = useNavigate();
   const [restocks, setRestocks] = useState([]);
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState("transactions"); // "transactions" or "report"
-  const [dateRange, setDateRange] = useState("today"); // "today", "yesterday", "last_7_days", "last_30_days", "this_month", "last_month", "custom"
-  const [customStartDate, setCustomStartDate] = useState("");
-  const [customEndDate, setCustomEndDate] = useState("");
+  const [viewMode, setViewMode] = useState("transactions");
+  const [date, setDate] = useState({
+    from: new Date(),
+    to: new Date(),
+  });
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [selectedRestock, setSelectedRestock] = useState(null);
 
   useEffect(() => {
     if (viewMode === "transactions") {
@@ -24,7 +32,7 @@ const RestockTransactions = () => {
     } else {
       fetchCombinedReport();
     }
-  }, [viewMode, dateRange, customStartDate, customEndDate]);
+  }, [viewMode, date]);
 
   const fetchRestockTransactions = async () => {
     setLoading(true);
@@ -42,14 +50,10 @@ const RestockTransactions = () => {
   const fetchCombinedReport = async () => {
     setLoading(true);
     try {
-      const params = { range: dateRange };
-      
-      // If custom date range is selected, use custom dates
-      if (dateRange === "custom" && customStartDate && customEndDate) {
-        params.start_date = customStartDate;
-        params.end_date = customEndDate;
-      }
-      
+      const params = {
+        start_date: format(date.from, "yyyy-MM-dd"),
+        end_date: format(date.to, "yyyy-MM-dd"),
+      };
       const data = await restockAPI.getCombinedReport(params);
       setReportData(data);
     } catch (error) {
@@ -60,28 +64,28 @@ const RestockTransactions = () => {
     }
   };
 
-  // Helper function to format date as dd/mm/yyyy
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
+  const handleDelete = async (restockId) => {
+    if (!window.confirm("Are you sure you want to delete this restock transaction? This action cannot be undone.")) {
+      return;
+    }
+    try {
+      await restockAPI.delete(restockId);
+      toast.success("Restock transaction deleted successfully");
+      fetchRestockTransactions();
+    } catch (error) {
+      console.error("Failed to delete restock transaction:", error);
+      toast.error("Failed to delete restock transaction");
+    }
   };
 
-  // Helper function to format date with time
+  const handleEdit = (restock) => {
+    setSelectedRestock(restock);
+    setIsEditDialogOpen(true);
+  };
+
   const formatDateTime = (dateString) => {
     const date = new Date(dateString);
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    return `${day}/${month}/${year} ${hours}:${minutes}`;
-  };
-
-  const printReport = () => {
-    window.print();
+    return format(date, "dd/MM/yyyy HH:mm");
   };
 
   if (loading) {
@@ -99,127 +103,73 @@ const RestockTransactions = () => {
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
             {viewMode === "transactions" ? "Restock Transactions" : "Combined Restock Report"}
           </h1>
-          <p className="text-gray-600">
-            {viewMode === "transactions" 
-              ? "View all restock transactions" 
-              : "View consolidated restock report"}
-          </p>
         </div>
         <div className="flex space-x-2">
           <Button
-            onClick={printReport}
-            variant="outline"
-            className="flex items-center space-x-2 no-print"
+            variant={viewMode === "transactions" ? "default" : "outline"}
+            onClick={() => setViewMode("transactions")}
           >
-            <Printer className="w-4 h-4" />
-            <span>Print</span>
+            Transactions
           </Button>
           <Button
-            onClick={() => navigate("/products")}
-            variant="outline"
+            variant={viewMode === "report" ? "default" : "outline"}
+            onClick={() => setViewMode("report")}
+          >
+            Combined Report
+          </Button>
+          <Button
+            onClick={() => navigate("/restock")}
             className="flex items-center space-x-2"
           >
             <PackagePlus className="w-4 h-4" />
-            <span>Back to Products</span>
+            <span>New Restock</span>
           </Button>
         </div>
       </div>
 
-      {/* View Toggle */}
-      <div className="flex space-x-2 no-print">
-        <Button
-          variant={viewMode === "transactions" ? "default" : "outline"}
-          onClick={() => setViewMode("transactions")}
-        >
-          Transactions
-        </Button>
-        <Button
-          variant={viewMode === "report" ? "default" : "outline"}
-          onClick={() => setViewMode("report")}
-        >
-          Combined Report
-        </Button>
-      </div>
-
-      {/* Date Filters for Report View */}
       {viewMode === "report" && (
         <Card className="glass-effect border-0 no-print">
           <CardHeader>
-            <CardTitle>Date Filters</CardTitle>
+            <CardTitle>Date Range</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant={dateRange === "today" ? "default" : "outline"}
-                onClick={() => setDateRange("today")}
-              >
-                Today
-              </Button>
-              <Button
-                variant={dateRange === "yesterday" ? "default" : "outline"}
-                onClick={() => setDateRange("yesterday")}
-              >
-                Yesterday
-              </Button>
-              <Button
-                variant={dateRange === "last_7_days" ? "default" : "outline"}
-                onClick={() => setDateRange("last_7_days")}
-              >
-                Last 7 Days
-              </Button>
-              <Button
-                variant={dateRange === "last_30_days" ? "default" : "outline"}
-                onClick={() => setDateRange("last_30_days")}
-              >
-                Last 30 Days
-              </Button>
-              <Button
-                variant={dateRange === "this_month" ? "default" : "outline"}
-                onClick={() => setDateRange("this_month")}
-              >
-                This Month
-              </Button>
-              <Button
-                variant={dateRange === "last_month" ? "default" : "outline"}
-                onClick={() => setDateRange("last_month")}
-              >
-                Last Month
-              </Button>
-              <Button
-                variant={dateRange === "custom" ? "default" : "outline"}
-                onClick={() => setDateRange("custom")}
-              >
-                Custom Range
-              </Button>
-              
-              {dateRange === "custom" && (
-                <div className="flex space-x-2 ml-4">
-                  <div>
-                    <label className="text-sm text-gray-600">Start Date</label>
-                    <input
-                      type="date"
-                      className="ml-2 p-2 border rounded"
-                      value={customStartDate}
-                      onChange={(e) => setCustomStartDate(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm text-gray-600">End Date</label>
-                    <input
-                      type="date"
-                      className="ml-2 p-2 border rounded"
-                      value={customEndDate}
-                      onChange={(e) => setCustomEndDate(e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  id="date"
+                  variant={"outline"}
+                  className="w-[300px] justify-start text-left font-normal"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {date?.from ? (
+                    date.to ? (
+                      <>
+                        {format(date.from, "LLL dd, y")} -{" "}
+                        {format(date.to, "LLL dd, y")}
+                      </>
+                    ) : (
+                      format(date.from, "LLL dd, y")
+                    )
+                  ) : (
+                    <span>Pick a date</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  initialFocus
+                  mode="range"
+                  defaultMonth={date?.from}
+                  selected={date}
+                  onSelect={setDate}
+                  numberOfMonths={2}
+                />
+              </PopoverContent>
+            </Popover>
           </CardContent>
         </Card>
       )}
 
-      {/* Transactions View */}
       {viewMode === "transactions" && (
         <Card className="glass-effect border-0">
           <CardHeader>
@@ -255,8 +205,22 @@ const RestockTransactions = () => {
                         <TableCell>{restock.booker_name || "-"}</TableCell>
                         <TableCell>{restock.deliveryman_name || "-"}</TableCell>
                         <TableCell>{restock.total_items_restocked}</TableCell>
-                        <TableCell>PKR {parseFloat(restock.total_restock_value).toFixed(2)}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell>PKR {formatNumber(restock.total_restock_value)}</TableCell>
+                        <TableCell className="text-right space-x-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleEdit(restock)}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDelete(restock.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
@@ -275,15 +239,19 @@ const RestockTransactions = () => {
         </Card>
       )}
 
-      {/* Combined Report View */}
       {viewMode === "report" && reportData && (
-        <CombinedRestockSlip 
-          reportData={reportData} 
-          dateRange={dateRange} 
-          customStartDate={customStartDate} 
-          customEndDate={customEndDate} 
+        <CombinedRestockSlip
+          reportData={reportData}
+          dateRange={{ from: date.from, to: date.to }}
         />
       )}
+
+      <RestockCart
+        isOpen={isEditDialogOpen}
+        onClose={() => setIsEditDialogOpen(false)}
+        onRestockComplete={fetchRestockTransactions}
+        editRestockData={selectedRestock}
+      />
     </div>
   );
 };

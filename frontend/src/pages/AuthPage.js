@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { auth } from "@/config/firebase";
 import {
-  signInAnonymously 
+  signInAnonymously
 } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,50 +9,58 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Package } from "lucide-react";
+import { API_BASE } from "@/lib/api";
 
-// Use the same API base configuration as in api.js
-const API_BASE = (
-  process.env.REACT_APP_API_BASE ||
-  (process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : `https://realgiveaways.com/api.php/api`)
-);
-
-// Ensure API_BASE ends with /api for proper routing
-const BASE_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`;
+const BASE_URL = API_BASE;
 
 const AuthPage = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [useMySQL, setUseMySQL] = useState(true);
 
   const handleMySQLLogin = async () => {
     setIsLoading(true);
     try {
-      // Use /api/login instead of /login to match backend routing
-      const response = await fetch(`${BASE_URL}/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
+      // Use XMLHttpRequest to bypass rrweb/fetch interception issues
+      const response = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${BASE_URL}/login`);
+        xhr.setRequestHeader("Content-Type", "application/json");
+
+        xhr.onload = () => {
+          resolve({
+            ok: xhr.status >= 200 && xhr.status < 300,
+            text: () => Promise.resolve(xhr.responseText),
+            statusText: xhr.statusText
+          });
+        };
+
+        xhr.onerror = () => reject(new Error("Network request failed"));
+        xhr.send(JSON.stringify({ username, password }));
       });
 
-      // Clone the response before reading it to avoid "Response body is already used" error
-      const responseClone = response.clone();
-      
+      // Read the response body once
+      const responseText = await response.text();
+
       if (!response.ok) {
-        const errorText = await responseClone.text();
         let errorMessage = "Login failed";
         try {
-          const error = JSON.parse(errorText);
+          const error = JSON.parse(responseText);
           errorMessage = error.detail || errorMessage;
         } catch (e) {
-          errorMessage = errorText || errorMessage;
+          errorMessage = responseText || errorMessage;
         }
         throw new Error(errorMessage);
       }
 
-      const data = await response.json();
+      // Parse the successful response
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (_) {
+        data = { detail: responseText };
+      }
       localStorage.setItem("mysql-token", data.token);
       localStorage.setItem("mysql-username", data.username);
       localStorage.setItem("skip-login", "true");
